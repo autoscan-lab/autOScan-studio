@@ -3,13 +3,14 @@
 
 # Xcode
 DerivedData/
-*.xcworkspace/xcuserdata/
-*.xcodeproj/xcuserdata/
-*.xcodeproj/project.xcworkspace/xcuserdata/
+**/*.xcworkspace/xcuserdata/
+**/*.xcodeproj/xcuserdata/
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcuserstate
 
 # SwiftPM
 .build/
-Package.resolved
+.swiftpm/
 
 # Editors
 .vscode/
