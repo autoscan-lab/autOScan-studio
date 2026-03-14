@@ -24,15 +24,15 @@ struct StudioActionButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold, design: .default))
+            .font(.system(size: 13, weight: .semibold, design: .default))
             .foregroundStyle(emphasized ? Color.black.opacity(0.8) : StudioTheme.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(emphasized ? StudioTheme.accent : StudioTheme.surface)
-            .clipShape(.rect(cornerRadius: 3))
+            .clipShape(.rect(cornerRadius: 5))
             .overlay(
-                RoundedRectangle(cornerRadius: 3)
+                RoundedRectangle(cornerRadius: 5)
                     .stroke(StudioTheme.separator.opacity(0.75), lineWidth: 0.8)
             )
             .opacity(configuration.isPressed ? 0.9 : 1)

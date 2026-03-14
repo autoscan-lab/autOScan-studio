@@ -7,7 +7,8 @@ struct autOScan_StudioApp: App {
             ContentView()
                 .frame(minWidth: 1240, minHeight: 800)
         }
-        .windowStyle(.hiddenTitleBar)
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .defaultSize(width: 1540, height: 940)
     }
 }

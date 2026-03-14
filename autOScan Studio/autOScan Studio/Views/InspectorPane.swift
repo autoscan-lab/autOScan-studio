@@ -4,43 +4,79 @@ struct InspectorPane: View {
     @Bindable var state: AppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 0) {
+            HStack {
                 Text("autOScan")
-                    .font(.system(size: 15, weight: .semibold, design: .default))
+                    .font(.system(size: 13, weight: .semibold, design: .default))
                     .foregroundStyle(StudioTheme.textPrimary)
-
-                section(title: "Actions") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Button("Run Session") {
-                            appendOutput("Run Session clicked")
-                        }
-                        .studioActionButton(emphasized: true)
-
-                        Button("Run Submission") {
-                            appendOutput("Run Submission clicked")
-                        }
-                        .studioActionButton()
-
-                        Button("Compute AI") {
-                            appendOutput("Compute AI clicked")
-                        }
-                        .studioActionButton()
-                    }
-                }
-
-                section(title: "Session") {
-                    VStack(alignment: .leading, spacing: 5) {
-                        statusRow(label: "Policy", value: state.activePolicy)
-                        statusRow(label: "Compile", value: state.compileStatus)
-                        statusRow(label: "AI", value: state.aiStatus)
-                    }
-                }
+                Spacer()
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 10)
+            .padding(.vertical, 9)
+
+            Rectangle()
+                .fill(StudioTheme.separator)
+                .frame(height: 1)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    section(title: "Policy") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            statusRow(label: "Active", value: displayValue(state.activePolicy))
+
+                            Button("Open Policies") {
+                                state.sidebarMode = .policies
+                                state.isSidebarPresented = true
+                            }
+                            .studioActionButton()
+                        }
+                    }
+
+                    section(title: "Actions") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Button("Run Session") {
+                                state.runStatus = "Session requested"
+                                state.isOutputPresented = true
+                                appendOutputLine("runSession requested (UI scaffold)")
+                            }
+                            .studioActionButton(emphasized: true)
+
+                            Button("Run Submission") {
+                                state.runStatus = "Submission requested"
+                                state.isOutputPresented = true
+                                appendOutputLine("runSubmission requested (UI scaffold)")
+                            }
+                            .studioActionButton()
+
+                            Button("Export Report") {
+                                state.exportStatus = "Requested"
+                                state.isOutputPresented = true
+                                appendOutputLine("exportReport requested (UI scaffold)")
+                            }
+                            .studioActionButton()
+                        }
+                    }
+
+                    section(title: "Status") {
+                        VStack(alignment: .leading, spacing: 5) {
+                            statusRow(label: "Run", value: state.runStatus)
+                            statusRow(label: "Compile", value: state.compileStatus)
+                            statusRow(label: "Export", value: state.exportStatus)
+                        }
+                    }
+
+                    section(title: "Banned Functions") {
+                        VStack(alignment: .leading, spacing: 5) {
+                            statusRow(label: "Status", value: state.bannedStatus)
+                            statusRow(label: "Hits", value: "\(state.bannedHits)")
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 10)
+            }
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
     }
 
     private func section<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -75,23 +111,15 @@ struct InspectorPane: View {
         }
     }
 
-    private func appendOutput(_ message: String) {
-        if message == "Run Session clicked" || message == "Run Submission clicked" {
-            state.outputText = """
-            --- expected/main.c
-            +++ actual/main.c
-            @@ -1,4 +1,4 @@
-             int main(void) {
-            -    return 0;
-            +    return 1;
-             }
-            """
-            return
-        }
+    private func displayValue(_ value: String) -> String {
+        value.isEmpty ? "—" : value
+    }
+
+    private func appendOutputLine(_ text: String) {
         if state.outputText.isEmpty {
-            state.outputText = message
+            state.outputText = text
             return
         }
-        state.outputText += "\n\(message)"
+        state.outputText += "\n\(text)"
     }
 }

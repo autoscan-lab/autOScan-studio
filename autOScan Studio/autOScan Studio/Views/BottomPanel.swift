@@ -19,34 +19,47 @@ struct BottomPanel: View {
                 .fill(StudioTheme.separator)
                 .frame(height: 1)
 
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(parsedLines.enumerated()), id: \.offset) { index, line in
-                        HStack(spacing: 8) {
-                            Text("\(index + 1)")
-                                .font(.system(size: 11, weight: .regular, design: .monospaced))
-                                .foregroundStyle(StudioTheme.textSecondary)
-                                .frame(width: 34, alignment: .trailing)
-
-                            Text(line.text.isEmpty ? " " : line.text)
-                                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                .foregroundStyle(textColor(for: line.kind))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .textSelection(.enabled)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 2)
-                        .background(backgroundColor(for: line.kind))
-                    }
+            if parsedLines.isEmpty {
+                VStack {
+                    Text("No output yet.")
+                        .font(.system(size: 12, weight: .regular, design: .default))
+                        .foregroundStyle(StudioTheme.textSecondary)
+                        .padding(.top, 12)
+                    Spacer()
                 }
-                .padding(.vertical, 6)
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(parsedLines.enumerated()), id: \.offset) { index, line in
+                            HStack(spacing: 8) {
+                                Text("\(index + 1)")
+                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(StudioTheme.textSecondary)
+                                    .frame(width: 34, alignment: .trailing)
+
+                                Text(line.text.isEmpty ? " " : line.text)
+                                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(textColor(for: line.kind))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .textSelection(.enabled)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 2)
+                            .background(backgroundColor(for: line.kind))
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .background(StudioTheme.chrome)
     }
 
     private var parsedLines: [DiffLine] {
+        guard !state.outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return []
+        }
         let rows = state.outputText.components(separatedBy: .newlines)
         return rows.map { row in
             DiffLine(text: row, kind: kind(for: row))
@@ -66,22 +79,22 @@ struct BottomPanel: View {
     private func textColor(for kind: DiffLine.Kind) -> Color {
         switch kind {
         case .added:
-            StudioTheme.success
+            return StudioTheme.success
         case .removed:
-            StudioTheme.error
+            return StudioTheme.error
         case .context:
-            StudioTheme.textPrimary
+            return StudioTheme.textPrimary
         }
     }
 
     private func backgroundColor(for kind: DiffLine.Kind) -> Color {
         switch kind {
         case .added:
-            StudioTheme.success.opacity(0.08)
+            return StudioTheme.success.opacity(0.08)
         case .removed:
-            StudioTheme.error.opacity(0.08)
+            return StudioTheme.error.opacity(0.08)
         case .context:
-            .clear
+            return Color.clear
         }
     }
 }
