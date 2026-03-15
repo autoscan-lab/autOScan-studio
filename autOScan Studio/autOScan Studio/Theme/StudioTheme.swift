@@ -1,29 +1,37 @@
+import AppKit
 import SwiftUI
 
 enum StudioTheme {
-    static let canvas = Color(hex: 0x0B0B0D)
-    static let chrome = Color(hex: 0x0F1012)
-    static let sidebar = Color(hex: 0x111214)
-    static let editor = Color(hex: 0x0C0D0F)
-    static let surface = Color(hex: 0x16181A)
-    static let surfaceMuted = Color(hex: 0x121315)
-    static let separator = Color(hex: 0x26282B)
+    static let chromeRowHeight: CGFloat = 40
 
-    static let textPrimary = Color(hex: 0xE6E7E9)
-    static let textSecondary = Color(hex: 0x9DA3AB)
+    static let canvasColor = NSColor(hex: 0x1F2126)
+    static let sidebarColor = NSColor(hex: 0x17191D)
+    static let editorColor = NSColor(hex: 0x22252C)
+    static let paneColor = NSColor(hex: 0x1C1F25)
+    static let separatorColor = NSColor(hex: 0x323743)
+    static let textPrimaryColor = NSColor(hex: 0xF2F4F8)
+    static let textSecondaryColor = NSColor(hex: 0x929AAC)
+    static let selectionColor = NSColor(hex: 0x6E7890, alpha: 0.42)
+    static let hoverColor = NSColor(hex: 0x2A2E37)
+    static let accentColor = NSColor(hex: 0x007AFF)
 
-    static let accent = Color(hex: 0x19A37C)
-    static let accentSoft = Color(hex: 0x162A22)
-    static let success = Color(hex: 0x56D364)
-    static let warning = Color(hex: 0xE3B341)
-    static let error = Color(hex: 0xF85149)
+    static let canvas = Color(nsColor: canvasColor)
+    static let sidebar = Color(nsColor: sidebarColor)
+    static let editor = Color(nsColor: editorColor)
+    static let pane = Color(nsColor: paneColor)
+    static let separator = Color(nsColor: separatorColor)
+    static let textPrimary = Color(nsColor: textPrimaryColor)
+    static let textSecondary = Color(nsColor: textSecondaryColor)
+    static let selection = Color(nsColor: selectionColor)
+    static let hover = Color(nsColor: hoverColor)
+    static let accent = Color(nsColor: accentColor)
 }
 
-extension Color {
-    init(hex: UInt32, opacity: Double = 1.0) {
-        let red = Double((hex >> 16) & 0xFF) / 255.0
-        let green = Double((hex >> 8) & 0xFF) / 255.0
-        let blue = Double(hex & 0xFF) / 255.0
-        self.init(.sRGB, red: red, green: green, blue: blue, opacity: opacity)
+extension NSColor {
+    convenience init(hex: UInt32, alpha: CGFloat = 1.0) {
+        let red = CGFloat((hex >> 16) & 0xFF) / 255.0
+        let green = CGFloat((hex >> 8) & 0xFF) / 255.0
+        let blue = CGFloat(hex & 0xFF) / 255.0
+        self.init(srgbRed: red, green: green, blue: blue, alpha: alpha)
     }
 }
