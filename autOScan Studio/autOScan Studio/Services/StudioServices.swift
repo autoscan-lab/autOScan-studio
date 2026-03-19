@@ -837,7 +837,7 @@ extension EngineClientError: LocalizedError {
         case .notImplemented(let operation):
             return "\(operation) isn't implemented yet."
         case .bridgeNotFound:
-            return "autOScan bridge wasn't found. Build `autOScan-engine/dist/autoscan-bridge` or set AUTOSCAN_BRIDGE_PATH."
+            return "autOScan bridge wasn't found. Rebuild Studio so it bundles autoscan-bridge, or set AUTOSCAN_BRIDGE_PATH."
         case .missingPolicyPath:
             return "A policy file is required before running the engine."
         case .invalidResponse(let message):
@@ -1200,6 +1200,13 @@ final class BridgeEngineClient: EngineClient {
         if let bundledURL = Bundle.main.url(forAuxiliaryExecutable: "autoscan-bridge"),
            fileManager.isExecutableFile(atPath: bundledURL.path) {
             return bundledURL
+        }
+
+        if let executableDirectoryURL = Bundle.main.executableURL?.deletingLastPathComponent() {
+            let bundledExecutableURL = executableDirectoryURL.appendingPathComponent("autoscan-bridge")
+            if fileManager.isExecutableFile(atPath: bundledExecutableURL.path) {
+                return bundledExecutableURL
+            }
         }
 
         if let pathEnvironment = environment["PATH"] {
