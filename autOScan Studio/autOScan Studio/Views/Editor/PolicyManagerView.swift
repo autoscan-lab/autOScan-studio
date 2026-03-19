@@ -180,11 +180,6 @@ struct PolicyManagerView: View {
     private var compileSection: some View {
         sectionCard(title: "Compile", systemImage: "hammer") {
             VStack(alignment: .leading, spacing: 12) {
-                labeledField("Compiler") {
-                    TextField("gcc", text: draftBinding(\.gcc, default: "gcc"))
-                        .textFieldStyle(.roundedBorder)
-                }
-
                 labeledField("Source File") {
                     TextField("main.c", text: draftBinding(\.sourceFile, default: ""))
                         .textFieldStyle(.roundedBorder)
@@ -206,23 +201,35 @@ struct PolicyManagerView: View {
     private var resourcesSection: some View {
         sectionCard(title: "Resources", systemImage: "tray.full") {
             VStack(alignment: .leading, spacing: 12) {
-                editableStringList(
+                importedFileList(
                     title: "Library Files",
                     items: draftStrings(\.libraryFiles),
-                    placeholder: "hospital.o",
-                    addLabel: "Add Library File",
-                    onUpdate: { items in
-                        updateDraft { $0.libraryFiles = items }
+                    helperText: "Imported files are copied into `.autoscan/libraries` for this workspace.",
+                    addLabel: "Import Library File",
+                    emptyMessage: "No library files linked yet.",
+                    onAdd: {
+                        state.importLibraryFileToSelectedPolicy()
+                    },
+                    onRemove: { index in
+                        updateDraft { draft in
+                            draft.libraryFiles.remove(at: index)
+                        }
                     }
                 )
 
-                editableStringList(
+                importedFileList(
                     title: "Test Files",
                     items: draftStrings(\.testFiles),
-                    placeholder: "input.txt",
-                    addLabel: "Add Test File",
-                    onUpdate: { items in
-                        updateDraft { $0.testFiles = items }
+                    helperText: "Imported files are copied into `.autoscan/test_files` for this workspace.",
+                    addLabel: "Import Test File",
+                    emptyMessage: "No test files linked yet.",
+                    onAdd: {
+                        state.importTestFileToSelectedPolicy()
+                    },
+                    onRemove: { index in
+                        updateDraft { draft in
+                            draft.testFiles.remove(at: index)
+                        }
                     }
                 )
             }
@@ -275,15 +282,10 @@ struct PolicyManagerView: View {
                                 .textFieldStyle(.roundedBorder)
                         }
 
-                        editableStringList(
-                            title: "Arguments",
-                            items: state.selectedPolicyTestCase?.args ?? [],
-                            placeholder: "--count",
-                            addLabel: "Add Arg",
-                            onUpdate: { items in
-                                updateSelectedTestCase { $0.args = items }
-                            }
-                        )
+                        labeledField("Argument") {
+                            TextField("--count", text: selectedTestCaseArgumentBinding)
+                                .textFieldStyle(.roundedBorder)
+                        }
 
                         labeledField("Standard Input") {
                             TextEditor(text: selectedTestCaseBinding(\.input, default: ""))
@@ -302,8 +304,7 @@ struct PolicyManagerView: View {
                             }
 
                             labeledField("Expected Output File") {
-                                TextField("expected.txt", text: selectedTestCaseBinding(\.expectedOutputFile, default: ""))
-                                    .textFieldStyle(.roundedBorder)
+                                selectedExpectedOutputPicker
                             }
                         }
                     } else {
@@ -313,6 +314,64 @@ struct PolicyManagerView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private func importedFileList(
+        title: String,
+        items: [String],
+        helperText: String,
+        addLabel: String,
+        emptyMessage: String,
+        onAdd: @escaping () -> Void,
+        onRemove: @escaping (Int) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(StudioTheme.textPrimary)
+
+                Spacer(minLength: 0)
+
+                Button(addLabel, action: onAdd)
+                    .buttonStyle(.bordered)
+            }
+
+            Text(helperText)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(StudioTheme.textSecondary)
+
+            if items.isEmpty {
+                Text(emptyMessage)
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(StudioTheme.textSecondary)
+            } else {
+                VStack(spacing: 8) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, value in
+                        HStack(spacing: 8) {
+                            Image(systemName: "doc")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(StudioTheme.textSecondary)
+
+                            Text(value)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(StudioTheme.textPrimary)
+                                .lineLimit(1)
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                onRemove(index)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                                    .foregroundStyle(.red)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
             }
         }
     }
@@ -534,6 +593,48 @@ struct PolicyManagerView: View {
             get: { state.selectedPolicyTestCaseID ?? state.selectedPolicyDraft?.testCases.first?.id },
             set: { state.selectPolicyTestCase(id: $0) }
         )
+    }
+
+    private var selectedTestCaseArgumentBinding: Binding<String> {
+        Binding(
+            get: { state.selectedPolicyTestCase?.singleArgument ?? "" },
+            set: { newValue in
+                updateSelectedTestCase { testCase in
+                    if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        testCase.args = []
+                    } else {
+                        testCase.args = [newValue]
+                    }
+                }
+            }
+        )
+    }
+
+    private var selectedExpectedOutputPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            let selectedFileName = state.selectedPolicyTestCase?.expectedOutputFile.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            Text(selectedFileName.isEmpty ? "No file selected" : selectedFileName)
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(selectedFileName.isEmpty ? StudioTheme.textSecondary : StudioTheme.textPrimary)
+
+            HStack(spacing: 8) {
+                Button("Choose File…") {
+                    state.importExpectedOutputFileToSelectedTestCase()
+                }
+                .buttonStyle(.bordered)
+
+                Button("Clear") {
+                    state.clearExpectedOutputFileForSelectedTestCase()
+                }
+                .buttonStyle(.bordered)
+                .disabled(selectedFileName.isEmpty)
+            }
+
+            Text("Imported files are copied into `.autoscan/expected_outputs` for this workspace.")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(StudioTheme.textSecondary)
+        }
     }
 
     private func updateSelectedTestCase(_ mutate: (inout PolicyDraft.TestCase) -> Void) {

@@ -8,6 +8,8 @@ struct PolicyFile: Identifiable, Hashable {
 }
 
 struct PolicyDraft: Equatable {
+    static let defaultCompiler = "gcc"
+
     struct TestCase: Identifiable, Equatable {
         let id: UUID
         var name: String
@@ -15,6 +17,10 @@ struct PolicyDraft: Equatable {
         var input: String
         var expectedExit: String
         var expectedOutputFile: String
+
+        var singleArgument: String {
+            args.first ?? ""
+        }
 
         init(
             id: UUID = UUID(),
@@ -62,7 +68,7 @@ struct PolicyDraft: Equatable {
     static func starter(named name: String) -> PolicyDraft {
         PolicyDraft(
             name: name,
-            gcc: "gcc",
+            gcc: defaultCompiler,
             flags: ["-Wall", "-Wextra"],
             sourceFile: "main.c",
             testCases: [
@@ -144,7 +150,7 @@ struct PolicyDraft: Equatable {
         var lines: [String] = []
         lines.append("name: \(yamlScalar(name))")
         lines.append("compile:")
-        lines.append("  gcc: \(yamlScalar(gcc.isEmpty ? "gcc" : gcc))")
+        lines.append("  gcc: \(yamlScalar(Self.defaultCompiler))")
         lines.append("  flags:")
         if flags.isEmpty {
             lines.append("    - \(yamlScalar("-Wall"))")
@@ -481,6 +487,23 @@ struct WorkspaceSnapshot {
     let urlByNodeID: [String: URL]
 }
 
+enum PolicyResourceKind {
+    case library
+    case testFile
+    case expectedOutput
+
+    var destinationFolderName: String {
+        switch self {
+        case .library:
+            return "libraries"
+        case .testFile:
+            return "test_files"
+        case .expectedOutput:
+            return "expected_outputs"
+        }
+    }
+}
+
 enum WorkspaceFileLoadResult {
     case text(String)
     case tooLarge
@@ -490,6 +513,7 @@ enum WorkspaceFileLoadResult {
 @MainActor
 protocol WorkspaceService {
     func chooseWorkspaceURL() -> URL?
+    func chooseFileURL(prompt: String, message: String, directoryURL: URL?) -> URL?
     func loadWorkspace(at rootURL: URL) throws -> WorkspaceSnapshot
     func readFile(at fileURL: URL) throws -> WorkspaceFileLoadResult
     func listPolicies(in rootURL: URL) throws -> [PolicyFile]
@@ -497,6 +521,7 @@ protocol WorkspaceService {
     func createPolicy(named name: String, content: String, in rootURL: URL) throws -> PolicyFile
     func updatePolicy(_ policy: PolicyFile, content: String) throws
     func deletePolicy(_ policy: PolicyFile) throws
+    func importPolicyResource(from sourceURL: URL, kind: PolicyResourceKind, in rootURL: URL) throws -> String
 }
 
 @MainActor
@@ -511,6 +536,23 @@ final class LocalWorkspaceService: WorkspaceService {
         panel.canCreateDirectories = false
         panel.prompt = "Open Workspace"
         panel.message = "Choose a folder to use as the workspace."
+
+        guard panel.runModal() == .OK else {
+            return nil
+        }
+
+        return panel.url
+    }
+
+    func chooseFileURL(prompt: String, message: String, directoryURL: URL?) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.prompt = prompt
+        panel.message = message
+        panel.directoryURL = directoryURL
 
         guard panel.runModal() == .OK else {
             return nil
@@ -602,6 +644,28 @@ final class LocalWorkspaceService: WorkspaceService {
             return
         }
         try FileManager.default.removeItem(at: policy.url)
+    }
+
+    func importPolicyResource(from sourceURL: URL, kind: PolicyResourceKind, in rootURL: URL) throws -> String {
+        let destinationDirectoryURL = try policyResourceDirectoryURL(for: kind, in: rootURL)
+        let standardizedSourceDirectoryURL = sourceURL.deletingLastPathComponent().standardizedFileURL
+        if standardizedSourceDirectoryURL == destinationDirectoryURL.standardizedFileURL {
+            return sourceURL.lastPathComponent
+        }
+
+        let didAccess = sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let destinationFileURL = uniqueImportedResourceURL(
+            fileName: sourceURL.lastPathComponent,
+            in: destinationDirectoryURL
+        )
+        try FileManager.default.copyItem(at: sourceURL, to: destinationFileURL)
+        return destinationFileURL.lastPathComponent
     }
 
     private func makeRootNode(for rootURL: URL, index: inout [String: URL]) throws -> WorkspaceNode {
@@ -719,6 +783,42 @@ final class LocalWorkspaceService: WorkspaceService {
             .trimmingCharacters(in: CharacterSet(charactersIn: "-_"))
 
         return collapsed.isEmpty ? "policy" : collapsed
+    }
+
+    private func policyResourceDirectoryURL(for kind: PolicyResourceKind, in rootURL: URL) throws -> URL {
+        let autoscanDirectoryURL = rootURL.appendingPathComponent(".autoscan", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: autoscanDirectoryURL.path) {
+            try FileManager.default.createDirectory(at: autoscanDirectoryURL, withIntermediateDirectories: true)
+        }
+
+        let directoryURL = autoscanDirectoryURL.appendingPathComponent(kind.destinationFolderName, isDirectory: true)
+        if !FileManager.default.fileExists(atPath: directoryURL.path) {
+            try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        }
+
+        return directoryURL
+    }
+
+    private func uniqueImportedResourceURL(fileName: String, in directoryURL: URL) -> URL {
+        let sourceURL = URL(fileURLWithPath: fileName)
+        let ext = sourceURL.pathExtension
+        let baseName = sourceURL.deletingPathExtension().lastPathComponent.nonEmpty ?? "file"
+        var candidateBaseName = baseName
+        var suffix = 1
+
+        while true {
+            var candidateURL = directoryURL.appendingPathComponent(candidateBaseName, isDirectory: false)
+            if !ext.isEmpty {
+                candidateURL.appendPathExtension(ext)
+            }
+
+            if !FileManager.default.fileExists(atPath: candidateURL.path) {
+                return candidateURL
+            }
+
+            suffix += 1
+            candidateBaseName = "\(baseName)-\(suffix)"
+        }
     }
 }
 

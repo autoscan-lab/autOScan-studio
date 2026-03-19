@@ -249,6 +249,10 @@ final class StudioAppState: ObservableObject {
         workspaceRootURL?.lastPathComponent ?? "No folder"
     }
 
+    private var workspaceConfigDirectoryURL: URL? {
+        workspaceRootURL?.appendingPathComponent(".autoscan", isDirectory: true)
+    }
+
     var openFileTabs: [EditorFileTab] {
         openFileNodeIDs.compactMap { nodeID in
             guard let fileURL = urlByNodeID[nodeID], !fileURL.hasDirectoryPath else {
@@ -515,6 +519,80 @@ final class StudioAppState: ObservableObject {
         }
     }
 
+    func importLibraryFileToSelectedPolicy() {
+        importPolicyResource(
+            kind: .library,
+            prompt: "Import Library File",
+            message: "Choose a file to copy into this workspace's .autoscan/libraries folder."
+        ) { draft, importedFileName in
+            if draft.libraryFiles.contains(importedFileName) == false {
+                draft.libraryFiles.append(importedFileName)
+            }
+        }
+    }
+
+    func importTestFileToSelectedPolicy() {
+        importPolicyResource(
+            kind: .testFile,
+            prompt: "Import Test File",
+            message: "Choose a file to copy into this workspace's .autoscan/test_files folder."
+        ) { draft, importedFileName in
+            if draft.testFiles.contains(importedFileName) == false {
+                draft.testFiles.append(importedFileName)
+            }
+        }
+    }
+
+    func importExpectedOutputFileToSelectedTestCase() {
+        guard selectedPolicyDraft != nil else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Select a policy before importing an expected output."
+            )
+            return
+        }
+
+        guard selectedPolicyTestCase != nil else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Select a test case before importing an expected output."
+            )
+            return
+        }
+
+        guard let importedFileName = chooseAndImportPolicyResource(
+            kind: .expectedOutput,
+            prompt: "Import Expected Output",
+            message: "Choose a file to copy into this workspace's .autoscan/expected_outputs folder."
+        ) else {
+            return
+        }
+
+        updateSelectedTestCase { testCase in
+            testCase.expectedOutputFile = importedFileName
+        }
+
+        policyBanner = PolicyBanner(
+            kind: .success,
+            message: "Attached \(importedFileName) as the expected output."
+        )
+    }
+
+    func clearExpectedOutputFileForSelectedTestCase() {
+        guard selectedPolicyTestCase != nil else {
+            return
+        }
+
+        updateSelectedTestCase { testCase in
+            testCase.expectedOutputFile = ""
+        }
+
+        policyBanner = PolicyBanner(
+            kind: .info,
+            message: "Cleared the expected output file."
+        )
+    }
+
     func runWorkspaceSession() {
         guard !isRunInProgress else {
             return
@@ -555,7 +633,8 @@ final class StudioAppState: ObservableObject {
 
         let request = RunSessionRequest(
             workspacePath: workspaceRootURL.path,
-            policyPath: policy.url.path
+            policyPath: policy.url.path,
+            configDirectoryPath: workspaceConfigDirectoryURL?.path
         )
 
         currentRunTask = Task { [weak self] in
@@ -800,13 +879,102 @@ final class StudioAppState: ObservableObject {
         }
     }
 
+    private func importPolicyResource(
+        kind: PolicyResourceKind,
+        prompt: String,
+        message: String,
+        update: (inout PolicyDraft, String) -> Void
+    ) {
+        guard selectedPolicyDraft != nil else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Select a policy before importing files."
+            )
+            return
+        }
+
+        guard let importedFileName = chooseAndImportPolicyResource(
+            kind: kind,
+            prompt: prompt,
+            message: message
+        ) else {
+            return
+        }
+
+        updateDraft { draft in
+            update(&draft, importedFileName)
+        }
+
+        policyBanner = PolicyBanner(
+            kind: .success,
+            message: "Imported \(importedFileName)."
+        )
+    }
+
+    private func chooseAndImportPolicyResource(
+        kind: PolicyResourceKind,
+        prompt: String,
+        message: String
+    ) -> String? {
+        clearPolicyBanner()
+
+        guard let workspaceRootURL else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Open a workspace before importing files."
+            )
+            return nil
+        }
+
+        guard let sourceURL = workspaceService.chooseFileURL(
+            prompt: prompt,
+            message: message,
+            directoryURL: workspaceRootURL
+        ) else {
+            return nil
+        }
+
+        do {
+            return try workspaceService.importPolicyResource(
+                from: sourceURL,
+                kind: kind,
+                in: workspaceRootURL
+            )
+        } catch {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't import \(sourceURL.lastPathComponent)."
+            )
+            return nil
+        }
+    }
+
+    private func updateDraft(_ mutate: (inout PolicyDraft) -> Void) {
+        guard var draft = selectedPolicyDraft else {
+            return
+        }
+
+        mutate(&draft)
+        updateSelectedPolicyDraft(draft)
+    }
+
+    private func updateSelectedTestCase(_ mutate: (inout PolicyDraft.TestCase) -> Void) {
+        guard
+            var draft = selectedPolicyDraft,
+            let selectedTestCaseID = selectedPolicyTestCaseID ?? draft.testCases.first?.id,
+            let testCaseIndex = draft.testCases.firstIndex(where: { $0.id == selectedTestCaseID })
+        else {
+            return
+        }
+
+        mutate(&draft.testCases[testCaseIndex])
+        updateSelectedPolicyDraft(draft)
+        selectPolicyTestCase(id: selectedTestCaseID)
+    }
+
     private func validate(_ draft: PolicyDraft) -> String? {
         if draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return "Policy name is required."
-        }
-
-        if draft.gcc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "Compiler command is required."
         }
 
         if draft.sourceFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
