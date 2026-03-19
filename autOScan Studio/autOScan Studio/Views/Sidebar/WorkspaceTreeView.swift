@@ -146,7 +146,7 @@ final class WorkspaceTreeViewController: NSViewController {
             return
         }
 
-        guard let selectedNodeID = state.selectedFileNodeID else {
+        guard let selectedNodeID = state.selectedSidebarNodeID(for: mode) else {
             guard outlineView.selectedRow != -1 else {
                 return
             }
@@ -362,7 +362,7 @@ extension WorkspaceTreeViewController: NSOutlineViewDelegate {
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.state?.selectFile(nodeID: node.id)
+            self?.state?.handleSidebarSelection(nodeID: node.id, mode: self?.mode ?? .workspace)
         }
     }
 

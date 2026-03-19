@@ -17,7 +17,7 @@ final class StudioCenterSplitViewController: NSSplitViewController {
         editorSplitItem = NSSplitViewItem(viewController: editorViewController)
         editorSplitItem.minimumThickness = 220
 
-        let outputViewController = NSHostingController(rootView: OutputPaneView())
+        let outputViewController = NSHostingController(rootView: OutputPaneView(state: state))
         outputSplitItem = NSSplitViewItem(viewController: outputViewController)
         outputSplitItem.minimumThickness = 120
         outputSplitItem.canCollapse = false

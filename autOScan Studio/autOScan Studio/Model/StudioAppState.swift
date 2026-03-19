@@ -4,6 +4,18 @@ import Foundation
 
 @MainActor
 final class StudioAppState: ObservableObject {
+    struct PolicyBanner: Identifiable {
+        enum Kind {
+            case success
+            case error
+            case info
+        }
+
+        let id = UUID()
+        let kind: Kind
+        let message: String
+    }
+
     enum SidebarMode: String, CaseIterable, Identifiable {
         case workspace = "Workspace"
         case policies = "Policies"
@@ -48,6 +60,14 @@ final class StudioAppState: ObservableObject {
         }
     }
     @Published var policyEditorText = ""
+    @Published private(set) var selectedPolicyDraft: PolicyDraft?
+    @Published var selectedPolicyTestCaseID: UUID?
+    @Published private(set) var policyBanner: PolicyBanner?
+    @Published private(set) var runOutputText = ""
+    @Published private(set) var isRunInProgress = false
+    @Published private(set) var runStatusMessage = "Ready to run"
+    @Published private(set) var latestRunReport: EngineRunReport?
+    @Published private(set) var latestRunError: String?
 
     @Published var expandedDirectoryIDs: Set<String> = [] {
         didSet {
@@ -63,6 +83,8 @@ final class StudioAppState: ObservableObject {
 
     private var workspaceRootURL: URL?
     private var urlByNodeID: [String: URL] = [:]
+    private var loadedPolicyText = ""
+    private var loadedPolicyDraft: PolicyDraft?
 
     private let engineClient: EngineClient
     private let workspaceService: WorkspaceService
@@ -71,9 +93,10 @@ final class StudioAppState: ObservableObject {
 
     private var isRestoringSession = false
     private var activeSecurityScopedWorkspaceURL: URL?
+    private var currentRunTask: Task<Void, Never>?
 
     init(
-        engineClient: EngineClient = PlaceholderEngineClient(),
+        engineClient: EngineClient = BridgeEngineClient(),
         workspaceService: WorkspaceService = LocalWorkspaceService(),
         terminalService: TerminalService = InMemoryTerminalService(),
         sshProfileStore: SSHProfileStore = InMemorySSHProfileStore()
@@ -135,6 +158,12 @@ final class StudioAppState: ObservableObject {
             activePolicyID = policies.first?.id
         }
 
+        if let selectedPolicyID {
+            selectPolicyForEditing(policyID: selectedPolicyID)
+        } else if let preferredPolicyID = activePolicyID ?? policies.first?.id {
+            selectPolicyForEditing(policyID: preferredPolicyID)
+        }
+
         persistWorkspaceBookmark(for: rootURL)
     }
 
@@ -143,7 +172,9 @@ final class StudioAppState: ObservableObject {
         case .workspace:
             return workspaceNodes
         case .policies:
-            return flatFileNodes(matching: { $0.hasSuffix(".yaml") || $0.contains("policy") })
+            return policies.map { policy in
+                WorkspaceNode(id: policy.id, name: policy.name, isDirectory: false, children: [])
+            }
         case .runs:
             return flatFileNodes(matching: { $0.contains("report") || $0.contains("run") })
         }
@@ -151,6 +182,24 @@ final class StudioAppState: ObservableObject {
 
     func fileURL(forNodeID nodeID: String) -> URL? {
         urlByNodeID[nodeID]
+    }
+
+    func selectedSidebarNodeID(for mode: SidebarMode) -> String? {
+        switch mode {
+        case .policies:
+            return selectedPolicyID
+        case .workspace, .runs:
+            return selectedFileNodeID
+        }
+    }
+
+    func handleSidebarSelection(nodeID: String, mode: SidebarMode) {
+        switch mode {
+        case .policies:
+            selectPolicyForEditing(policyID: nodeID)
+        case .workspace, .runs:
+            selectFile(nodeID: nodeID)
+        }
     }
 
     func isDirectoryExpanded(_ nodeID: String) -> Bool {
@@ -226,36 +275,119 @@ final class StudioAppState: ObservableObject {
         return policies.first { $0.id == activePolicyID }?.name
     }
 
+    var currentRunnablePolicy: PolicyFile? {
+        if let selectedPolicy {
+            return selectedPolicy
+        }
+
+        if let activePolicyID {
+            return policies.first { $0.id == activePolicyID }
+        }
+
+        return policies.first
+    }
+
+    var canRunWorkspace: Bool {
+        hasWorkspace && currentRunnablePolicy != nil && !isRunInProgress
+    }
+
+    var isPolicyDirty: Bool {
+        guard let selectedPolicyDraft, let loadedPolicyDraft, selectedPolicy != nil else {
+            return false
+        }
+        return selectedPolicyDraft != loadedPolicyDraft
+    }
+
+    var hasPolicies: Bool {
+        !policies.isEmpty
+    }
+
+    func clearPolicyBanner() {
+        policyBanner = nil
+    }
+
+    func clearRunOutput() {
+        terminalService.clear()
+        runOutputText = terminalService.output
+    }
+
+    var selectedPolicyTestCase: PolicyDraft.TestCase? {
+        guard
+            let selectedPolicyDraft,
+            let selectedPolicyTestCaseID
+        else {
+            return selectedPolicyDraft?.testCases.first
+        }
+
+        return selectedPolicyDraft.testCases.first { $0.id == selectedPolicyTestCaseID }
+    }
+
+    func updateSelectedPolicyDraft(_ draft: PolicyDraft) {
+        clearPolicyBanner()
+        selectedPolicyDraft = draft
+
+        if let selectedPolicyTestCaseID,
+           draft.testCases.contains(where: { $0.id == selectedPolicyTestCaseID }) == false {
+            self.selectedPolicyTestCaseID = draft.testCases.first?.id
+        } else if self.selectedPolicyTestCaseID == nil {
+            self.selectedPolicyTestCaseID = draft.testCases.first?.id
+        }
+    }
+
+    func selectPolicyTestCase(id: UUID?) {
+        selectedPolicyTestCaseID = id
+    }
+
     func selectPolicyForEditing(policyID: String?) {
         selectedPolicyID = policyID
+        clearPolicyBanner()
 
         guard let policy = selectedPolicy else {
             policyEditorText = ""
+            loadedPolicyText = ""
+            loadedPolicyDraft = nil
+            selectedPolicyDraft = nil
+            selectedPolicyTestCaseID = nil
             return
         }
 
         do {
-            policyEditorText = try workspaceService.readPolicy(policy)
+            let text = try workspaceService.readPolicy(policy)
+            loadedPolicyText = text
+            policyEditorText = text
+            let draft = PolicyDraft.parse(text)
+            loadedPolicyDraft = draft
+            selectedPolicyDraft = draft
+            selectedPolicyTestCaseID = draft.testCases.first?.id
         } catch {
+            loadedPolicyText = ""
             policyEditorText = ""
+            loadedPolicyDraft = nil
+            selectedPolicyDraft = nil
+            selectedPolicyTestCaseID = nil
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't open \(policy.name)."
+            )
         }
     }
 
     func createPolicy(named name: String) {
         guard let workspaceRootURL else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Open a workspace before creating a policy."
+            )
             return
         }
 
-        let template = """
-        # \(name)
-        checks:
-          - compile: true
-        """
+        let draft = PolicyDraft.starter(named: name)
+        let template = draft.serializedYAML()
 
         do {
             let createdPolicy = try workspaceService.createPolicy(
                 named: name,
-                content: template + "\n",
+                content: template,
                 in: workspaceRootURL
             )
             reloadWorkspaceAndPolicies(preservePolicySelection: createdPolicy.id)
@@ -263,7 +395,15 @@ final class StudioAppState: ObservableObject {
             if activePolicyID == nil {
                 activePolicyID = selectedPolicyID
             }
+            policyBanner = PolicyBanner(
+                kind: .success,
+                message: "Created \(createdPolicy.name)."
+            )
         } catch {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't create that policy."
+            )
             return
         }
     }
@@ -273,13 +413,60 @@ final class StudioAppState: ObservableObject {
             return
         }
 
-        do {
-            try workspaceService.updatePolicy(policy, content: policyEditorText)
-            reloadWorkspaceAndPolicies(preservePolicySelection: policy.id)
-            selectedPolicyID = policy.id
-        } catch {
+        guard let selectedPolicyDraft else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't load the selected policy draft."
+            )
             return
         }
+
+        guard isPolicyDirty else {
+            policyBanner = PolicyBanner(
+                kind: .info,
+                message: "No changes to save."
+            )
+            return
+        }
+
+        if let validationError = validate(selectedPolicyDraft) {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: validationError
+            )
+            return
+        }
+
+        do {
+            let serializedPolicy = selectedPolicyDraft.serializedYAML()
+            try workspaceService.updatePolicy(policy, content: serializedPolicy)
+            policyEditorText = serializedPolicy
+            reloadWorkspaceAndPolicies(preservePolicySelection: policy.id)
+            selectPolicyForEditing(policyID: policy.id)
+            policyBanner = PolicyBanner(
+                kind: .success,
+                message: "Saved \(policy.name)."
+            )
+        } catch {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't save \(policy.name)."
+            )
+            return
+        }
+    }
+
+    func revertSelectedPolicyEdits() {
+        guard let loadedPolicyDraft, selectedPolicy != nil else {
+            return
+        }
+
+        selectedPolicyDraft = loadedPolicyDraft
+        selectedPolicyTestCaseID = loadedPolicyDraft.testCases.first?.id
+        policyBanner = PolicyBanner(
+            kind: .info,
+            message: "Reverted unsaved changes."
+        )
     }
 
     func deleteSelectedPolicy() {
@@ -302,8 +489,17 @@ final class StudioAppState: ObservableObject {
                 selectPolicyForEditing(policyID: nil)
             }
         } catch {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't delete \(policy.name)."
+            )
             return
         }
+
+        policyBanner = PolicyBanner(
+            kind: .success,
+            message: "Deleted \(policy.name)."
+        )
     }
 
     func setActivePolicyToSelection() {
@@ -311,6 +507,90 @@ final class StudioAppState: ObservableObject {
             return
         }
         activePolicyID = selectedPolicyID
+        if let policy = selectedPolicy {
+            policyBanner = PolicyBanner(
+                kind: .success,
+                message: "\(policy.name) is now active."
+            )
+        }
+    }
+
+    func runWorkspaceSession() {
+        guard !isRunInProgress else {
+            return
+        }
+
+        guard let workspaceRootURL else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Open a workspace before starting a run."
+            )
+            return
+        }
+
+        guard let policy = currentRunnablePolicy else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Select or activate a policy before running."
+            )
+            return
+        }
+
+        if isPolicyDirty {
+            saveSelectedPolicyEdits()
+            guard !isPolicyDirty else {
+                return
+            }
+        }
+
+        currentRunTask?.cancel()
+        latestRunReport = nil
+        latestRunError = nil
+        runStatusMessage = "Running \(policy.name)…"
+        isRunInProgress = true
+        isOutputVisible = true
+        isInspectorVisible = true
+        clearRunOutput()
+        appendRunOutput("Running workspace \(workspaceRootURL.lastPathComponent) with \(policy.name).")
+
+        let request = RunSessionRequest(
+            workspacePath: workspaceRootURL.path,
+            policyPath: policy.url.path
+        )
+
+        currentRunTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let report = try await engineClient.runSession(request: request) { [weak self] event in
+                    await MainActor.run {
+                        self?.handleRunEvent(event)
+                    }
+                }
+
+                await MainActor.run {
+                    self.latestRunReport = report
+                    self.isRunInProgress = false
+                    self.runStatusMessage = "Run finished: \(report.summary.totalSubmissions) submissions checked."
+                    self.appendRunOutput("Run finished in \(report.summary.durationMs) ms.")
+                    self.currentRunTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.isRunInProgress = false
+                    self.latestRunError = error.localizedDescription
+                    self.runStatusMessage = "Run failed"
+                    self.appendRunOutput("Run failed: \(error.localizedDescription)")
+                    self.policyBanner = PolicyBanner(
+                        kind: .error,
+                        message: error.localizedDescription
+                    )
+                    self.currentRunTask = nil
+                }
+            }
+        }
     }
 
     private func restorePersistedSession() {
@@ -468,6 +748,9 @@ final class StudioAppState: ObservableObject {
             policies = []
             selectedPolicyID = nil
             policyEditorText = ""
+            selectedPolicyDraft = nil
+            loadedPolicyDraft = nil
+            selectedPolicyTestCaseID = nil
             return
         }
 
@@ -480,12 +763,21 @@ final class StudioAppState: ObservableObject {
         if let selectedPolicyID,
            policies.contains(where: { $0.id == selectedPolicyID }) == false {
             self.selectedPolicyID = nil
+            loadedPolicyText = ""
+            loadedPolicyDraft = nil
             policyEditorText = ""
+            selectedPolicyDraft = nil
+            selectedPolicyTestCaseID = nil
         }
 
         if let activePolicyID,
            policies.contains(where: { $0.id == activePolicyID }) == false {
             self.activePolicyID = nil
+        }
+
+        if selectedPolicyID == nil,
+           let preferredPolicyID = activePolicyID ?? policies.first?.id {
+            selectPolicyForEditing(policyID: preferredPolicyID)
         }
     }
 
@@ -504,8 +796,70 @@ final class StudioAppState: ObservableObject {
 
         if let preservePolicySelection,
            policies.contains(where: { $0.id == preservePolicySelection }) {
-            selectedPolicyID = preservePolicySelection
+            selectPolicyForEditing(policyID: preservePolicySelection)
         }
+    }
+
+    private func validate(_ draft: PolicyDraft) -> String? {
+        if draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Policy name is required."
+        }
+
+        if draft.gcc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Compiler command is required."
+        }
+
+        if draft.sourceFile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return "Source file is required."
+        }
+
+        for testCase in draft.testCases {
+            let trimmedExit = testCase.expectedExit.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedExit.isEmpty, Int(trimmedExit) == nil {
+                let caseName = testCase.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? "Unnamed test"
+                    : testCase.name
+                return "\(caseName) has an invalid expected exit code."
+            }
+        }
+
+        return nil
+    }
+
+    private func handleRunEvent(_ event: EngineRunEvent) {
+        switch event {
+        case .started(let message):
+            appendRunOutput(message)
+        case .discoveryComplete(let discovery):
+            appendRunOutput("Discovered \(discovery.submissionCount) submission(s).")
+        case .compileComplete(let compile):
+            let status = compile.ok ? "ok" : (compile.timedOut ? "timed out" : "failed")
+            appendRunOutput("Compile \(compile.submissionID): \(status) (\(compile.durationMs) ms)")
+
+            if let stderr = compile.stderr?.trimmingCharacters(in: .whitespacesAndNewlines), !stderr.isEmpty {
+                appendRunOutput(stderr)
+            }
+        case .scanComplete(let scan):
+            appendRunOutput("Scan \(scan.submissionID): \(scan.bannedHits) banned hit(s)")
+
+            if !scan.parseErrors.isEmpty {
+                appendRunOutput(scan.parseErrors.joined(separator: "\n"))
+            }
+        case .runComplete(let report):
+            latestRunReport = report
+            latestRunError = nil
+            appendRunOutput(
+                "Summary: \(report.summary.compilePass) compile pass, \(report.summary.compileFail) fail, \(report.summary.submissionsWithBanned) with banned calls."
+            )
+        case .error(let message):
+            latestRunError = message
+            appendRunOutput("Engine error: \(message)")
+        }
+    }
+
+    private func appendRunOutput(_ line: String) {
+        terminalService.append(line)
+        runOutputText = terminalService.output
     }
 }
 

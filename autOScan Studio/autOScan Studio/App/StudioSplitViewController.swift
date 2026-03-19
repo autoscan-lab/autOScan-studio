@@ -34,7 +34,7 @@ final class StudioSplitViewController: NSSplitViewController {
         mainSplitItem.minimumThickness = 420
         mainSplitItem.titlebarSeparatorStyle = .none
 
-        let inspectorController = NSHostingController(rootView: InspectorPaneView())
+        let inspectorController = NSHostingController(rootView: InspectorPaneView(state: state))
         inspectorSplitItem = NSSplitViewItem(inspectorWithViewController: inspectorController)
         inspectorSplitItem.minimumThickness = 260
         inspectorSplitItem.maximumThickness = 460

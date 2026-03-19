@@ -5,13 +5,17 @@ struct EditorPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            editorHeader
+            if isShowingPolicyEditor {
+                policyHeader
+            } else {
+                editorHeader
+            }
 
             ZStack {
                 Color(nsColor: StudioTheme.editorColor)
                     .ignoresSafeArea()
 
-                if state.sidebarMode == .policies, state.hasWorkspace {
+                if isShowingPolicyEditor {
                     PolicyManagerView(state: state)
                 } else {
                     CodeTextView(text: state.editorText)
@@ -69,5 +73,51 @@ struct EditorPaneView: View {
         Rectangle()
             .fill(StudioTheme.separator.opacity(0.72))
             .frame(height: 1)
+    }
+
+    private var isShowingPolicyEditor: Bool {
+        state.sidebarMode == .policies && state.hasWorkspace
+    }
+
+    private var policyHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            headerSeparator
+
+            HStack(spacing: 8) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(StudioTheme.textSecondary)
+
+                if let selectedPolicy = state.selectedPolicy {
+                    Text(selectedPolicy.name)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StudioTheme.textPrimary)
+                        .lineLimit(1)
+
+                    if state.activePolicyID == selectedPolicy.id {
+                        Text("Active")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(StudioTheme.accent)
+                    }
+
+                    if state.isPolicyDirty {
+                        Text("Unsaved changes")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.orange)
+                    }
+                } else {
+                    Text("Policies")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(StudioTheme.textPrimary)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: StudioTheme.chromeRowHeight)
+
+            headerSeparator
+        }
+        .background(StudioTheme.editor)
     }
 }
