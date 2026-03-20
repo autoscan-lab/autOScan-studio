@@ -16,10 +16,30 @@ final class StudioAppState: ObservableObject {
         let message: String
     }
 
+    struct RemotePreset: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let primaryText: String
+        let secondaryText: String
+    }
+
+    struct RemoteTargetSummary: Identifiable, Hashable {
+        enum Source: String {
+            case preset = "University preset"
+            case profile = "Saved profile"
+        }
+
+        let id: String
+        let source: Source
+        let title: String
+        let primaryText: String
+        let secondaryText: String
+    }
+
     enum SidebarMode: String, CaseIterable, Identifiable {
         case workspace = "Workspace"
         case policies = "Policies"
-        case runs = "Runs"
+        case remote = "Remote"
 
         var id: String { rawValue }
     }
@@ -57,6 +77,11 @@ final class StudioAppState: ObservableObject {
     @Published var activePolicyID: String? {
         didSet {
             persistActivePolicySelection()
+        }
+    }
+    @Published var activeRemoteTargetID: String? {
+        didSet {
+            persistActiveRemoteTargetSelection()
         }
     }
     @Published var policyEditorText = ""
@@ -175,8 +200,8 @@ final class StudioAppState: ObservableObject {
             return policies.map { policy in
                 WorkspaceNode(id: policy.id, name: policy.name, isDirectory: false, children: [])
             }
-        case .runs:
-            return flatFileNodes(matching: { $0.contains("report") || $0.contains("run") })
+        case .remote:
+            return []
         }
     }
 
@@ -188,8 +213,10 @@ final class StudioAppState: ObservableObject {
         switch mode {
         case .policies:
             return selectedPolicyID
-        case .workspace, .runs:
+        case .workspace:
             return selectedFileNodeID
+        case .remote:
+            return nil
         }
     }
 
@@ -197,9 +224,23 @@ final class StudioAppState: ObservableObject {
         switch mode {
         case .policies:
             selectPolicyForEditing(policyID: nodeID)
-        case .workspace, .runs:
+        case .workspace:
             selectFile(nodeID: nodeID)
+        case .remote:
+            return
         }
+    }
+
+    func activateRemotePreset(_ preset: RemotePreset) {
+        activeRemoteTargetID = preset.id
+    }
+
+    func activateRemoteProfile(_ profile: SSHProfile) {
+        activeRemoteTargetID = Self.remoteProfileTargetID(profile.id)
+    }
+
+    func clearActiveRemoteTarget() {
+        activeRemoteTargetID = nil
     }
 
     func isDirectoryExpanded(_ nodeID: String) -> Bool {
@@ -247,6 +288,65 @@ final class StudioAppState: ObservableObject {
 
     var workspaceDisplayName: String {
         workspaceRootURL?.lastPathComponent ?? "No folder"
+    }
+
+    var remotePresets: [RemotePreset] {
+        Self.defaultRemotePresets
+    }
+
+    var savedSSHProfiles: [SSHProfile] {
+        sshProfileStore.listProfiles()
+    }
+
+    var remoteTargets: [RemoteTargetSummary] {
+        let presetTargets = remotePresets.map { preset in
+            RemoteTargetSummary(
+                id: preset.id,
+                source: .preset,
+                title: preset.name,
+                primaryText: preset.primaryText,
+                secondaryText: preset.secondaryText
+            )
+        }
+
+        let profileTargets = savedSSHProfiles.map { profile in
+            RemoteTargetSummary(
+                id: Self.remoteProfileTargetID(profile.id),
+                source: .profile,
+                title: profile.name,
+                primaryText: profile.host,
+                secondaryText: "\(profile.user) • Port \(profile.port)"
+            )
+        }
+
+        return presetTargets + profileTargets
+    }
+
+    var activeRemoteTarget: RemoteTargetSummary? {
+        guard let activeRemoteTargetID else {
+            return nil
+        }
+
+        return remoteTargets.first { $0.id == activeRemoteTargetID }
+    }
+
+    var selectedWorkspaceItemName: String? {
+        guard
+            let selectedFileNodeID,
+            let fileURL = urlByNodeID[selectedFileNodeID]
+        else {
+            return nil
+        }
+
+        return fileURL.lastPathComponent
+    }
+
+    var canPrepareRemoteWorkspaceUpload: Bool {
+        hasWorkspace && activeRemoteTarget != nil
+    }
+
+    var canPrepareRemoteSelectionUpload: Bool {
+        selectedWorkspaceItemName != nil && activeRemoteTarget != nil
     }
 
     private var workspaceConfigDirectoryURL: URL? {
@@ -778,6 +878,10 @@ final class StudioAppState: ObservableObject {
             isOutputVisible = defaults.bool(forKey: PersistedKey.isOutputVisible)
         }
 
+        if let restoredRemoteTargetID = defaults.string(forKey: PersistedKey.activeRemoteTargetID) {
+            activeRemoteTargetID = restoredRemoteTargetID
+        }
+
         let restoredExpandedDirectoryIDs = Set(defaults.stringArray(forKey: PersistedKey.expandedDirectoryIDs) ?? [])
         let restoredSelectedFileNodeID = defaults.string(forKey: PersistedKey.selectedFileNodeID)
 
@@ -844,6 +948,15 @@ final class StudioAppState: ObservableObject {
         }
     }
 
+    private func persistActiveRemoteTargetSelection() {
+        let defaults = UserDefaults.standard
+        if let activeRemoteTargetID {
+            defaults.set(activeRemoteTargetID, forKey: PersistedKey.activeRemoteTargetID)
+        } else {
+            defaults.removeObject(forKey: PersistedKey.activeRemoteTargetID)
+        }
+    }
+
     private func persistWorkspaceBookmark(for rootURL: URL, force: Bool = false) {
         guard force || !isRestoringSession else {
             return
@@ -863,6 +976,7 @@ final class StudioAppState: ObservableObject {
         defaults.removeObject(forKey: PersistedKey.expandedDirectoryIDs)
         defaults.removeObject(forKey: PersistedKey.selectedFileNodeID)
         defaults.removeObject(forKey: PersistedKey.activePolicyID)
+        defaults.removeObject(forKey: PersistedKey.activeRemoteTargetID)
     }
 
     private func beginAccessingWorkspace(at url: URL) {
@@ -882,16 +996,6 @@ final class StudioAppState: ObservableObject {
 
     private func directoryIDs(in nodes: [WorkspaceNode]) -> Set<String> {
         Set(flattenNodes(nodes).filter(\.isDirectory).map(\.id))
-    }
-
-    private func flatFileNodes(matching predicate: (String) -> Bool) -> [WorkspaceNode] {
-        let allFileNodes = flattenNodes(workspaceNodes)
-            .filter { !$0.isDirectory && predicate($0.id) }
-            .sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
-
-        return allFileNodes.map { node in
-            WorkspaceNode(id: node.id, name: node.id, isDirectory: false, children: [])
-        }
     }
 
     private func flattenNodes(_ nodes: [WorkspaceNode]) -> [WorkspaceNode] {
@@ -1110,6 +1214,10 @@ final class StudioAppState: ObservableObject {
         terminalService.append(line)
         runOutputText = terminalService.output
     }
+
+    private static func remoteProfileTargetID(_ profileID: UUID) -> String {
+        "profile:\(profileID.uuidString)"
+    }
 }
 
 private enum PersistedKey {
@@ -1121,9 +1229,33 @@ private enum PersistedKey {
     static let expandedDirectoryIDs = "studio.session.expandedDirectoryIDs"
     static let selectedFileNodeID = "studio.session.selectedFileNodeID"
     static let activePolicyID = "studio.session.activePolicyID"
+    static let activeRemoteTargetID = "studio.session.activeRemoteTargetID"
 }
 
 struct EditorFileTab: Identifiable, Equatable {
     let id: String
     let title: String
+}
+
+private extension StudioAppState {
+    static let defaultRemotePresets: [RemotePreset] = [
+        RemotePreset(
+            id: "preset:uni-1",
+            name: "University Server 1",
+            primaryText: "Quick-connect preset slot",
+            secondaryText: "Reserved for the first shared grading server."
+        ),
+        RemotePreset(
+            id: "preset:uni-2",
+            name: "University Server 2",
+            primaryText: "Quick-connect preset slot",
+            secondaryText: "Reserved for the second shared grading server."
+        ),
+        RemotePreset(
+            id: "preset:uni-3",
+            name: "University Server 3",
+            primaryText: "Quick-connect preset slot",
+            secondaryText: "Reserved for the third shared grading server."
+        )
+    ]
 }

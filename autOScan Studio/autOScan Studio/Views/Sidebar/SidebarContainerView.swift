@@ -7,7 +7,10 @@ struct SidebarContainerView: View {
         VStack(spacing: 0) {
             modeTabBar
 
-            if state.hasWorkspace {
+            if state.sidebarMode == .remote {
+                RemoteSidebarView(state: state)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if state.hasWorkspace {
                 WorkspaceTreeView(state: state, mode: state.sidebarMode)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -61,8 +64,8 @@ struct SidebarContainerView: View {
             return "folder"
         case .policies:
             return "slider.horizontal.3"
-        case .runs:
-            return "play.rectangle"
+        case .remote:
+            return "network"
         }
     }
 
