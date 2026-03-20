@@ -24,16 +24,29 @@ final class StudioAppState: ObservableObject {
     }
 
     struct RemoteTargetSummary: Identifiable, Hashable {
-        enum Source: String {
-            case preset = "University preset"
-            case profile = "Saved profile"
-        }
-
         let id: String
-        let source: Source
         let title: String
         let primaryText: String
         let secondaryText: String
+    }
+
+    struct RemoteOnboardingStep: Identifiable, Hashable {
+        enum State {
+            case pending
+            case active
+            case done
+        }
+
+        let id: String
+        let title: String
+        let detail: String
+        let state: State
+    }
+
+    enum RemoteConnectionState: Equatable {
+        case disconnected
+        case linking
+        case connected
     }
 
     enum SidebarMode: String, CaseIterable, Identifiable {
@@ -84,6 +97,13 @@ final class StudioAppState: ObservableObject {
             persistActiveRemoteTargetSelection()
         }
     }
+    @Published var remoteAccountUsername = "" {
+        didSet {
+            persistRemoteAccountUsername()
+        }
+    }
+    @Published var remoteConnectionState: RemoteConnectionState = .disconnected
+    @Published var remoteOnboardingStepIndex = 0
     @Published var policyEditorText = ""
     @Published private(set) var selectedPolicyDraft: PolicyDraft?
     @Published var selectedPolicyTestCaseID: UUID?
@@ -114,7 +134,6 @@ final class StudioAppState: ObservableObject {
     private let engineClient: EngineClient
     private let workspaceService: WorkspaceService
     private let terminalService: TerminalService
-    private let sshProfileStore: SSHProfileStore
 
     private var isRestoringSession = false
     private var activeSecurityScopedWorkspaceURL: URL?
@@ -123,13 +142,11 @@ final class StudioAppState: ObservableObject {
     init(
         engineClient: EngineClient = BridgeEngineClient(),
         workspaceService: WorkspaceService = LocalWorkspaceService(),
-        terminalService: TerminalService = InMemoryTerminalService(),
-        sshProfileStore: SSHProfileStore = InMemorySSHProfileStore()
+        terminalService: TerminalService = InMemoryTerminalService()
     ) {
         self.engineClient = engineClient
         self.workspaceService = workspaceService
         self.terminalService = terminalService
-        self.sshProfileStore = sshProfileStore
         restorePersistedSession()
     }
 
@@ -231,16 +248,69 @@ final class StudioAppState: ObservableObject {
         }
     }
 
-    func activateRemotePreset(_ preset: RemotePreset) {
-        activeRemoteTargetID = preset.id
-    }
+    func selectRemotePreset(_ preset: RemotePreset) {
+        guard activeRemoteTargetID != preset.id else {
+            return
+        }
 
-    func activateRemoteProfile(_ profile: SSHProfile) {
-        activeRemoteTargetID = Self.remoteProfileTargetID(profile.id)
+        activeRemoteTargetID = preset.id
+        if remoteConnectionState != .disconnected {
+            remoteConnectionState = .disconnected
+        }
+        remoteOnboardingStepIndex = 0
     }
 
     func clearActiveRemoteTarget() {
         activeRemoteTargetID = nil
+        remoteConnectionState = .disconnected
+        remoteOnboardingStepIndex = 0
+    }
+
+    func handleRemoteConnectionAction(for preset: RemotePreset) {
+        if activeRemoteTargetID != preset.id {
+            selectRemotePreset(preset)
+        }
+
+        switch remoteConnectionState {
+        case .disconnected:
+            remoteConnectionState = .linking
+            remoteOnboardingStepIndex = 0
+        case .linking:
+            return
+        case .connected:
+            return
+        }
+    }
+
+    func advanceRemoteOnboardingMock() {
+        guard activeRemoteTargetID != nil else {
+            return
+        }
+
+        let finalIndex = max(Self.remoteOnboardingBlueprint.count - 1, 0)
+        if remoteConnectionState != .linking {
+            remoteConnectionState = .linking
+        }
+
+        if remoteOnboardingStepIndex < finalIndex {
+            remoteOnboardingStepIndex += 1
+        } else {
+            remoteConnectionState = .connected
+        }
+    }
+
+    func restartRemoteOnboardingMock() {
+        guard activeRemoteTargetID != nil else {
+            return
+        }
+
+        remoteConnectionState = .linking
+        remoteOnboardingStepIndex = 0
+    }
+
+    func disconnectRemoteConnection() {
+        remoteConnectionState = .disconnected
+        remoteOnboardingStepIndex = 0
     }
 
     func isDirectoryExpanded(_ nodeID: String) -> Bool {
@@ -294,59 +364,104 @@ final class StudioAppState: ObservableObject {
         Self.defaultRemotePresets
     }
 
-    var savedSSHProfiles: [SSHProfile] {
-        sshProfileStore.listProfiles()
-    }
-
-    var remoteTargets: [RemoteTargetSummary] {
-        let presetTargets = remotePresets.map { preset in
-            RemoteTargetSummary(
-                id: preset.id,
-                source: .preset,
-                title: preset.name,
-                primaryText: preset.primaryText,
-                secondaryText: preset.secondaryText
-            )
-        }
-
-        let profileTargets = savedSSHProfiles.map { profile in
-            RemoteTargetSummary(
-                id: Self.remoteProfileTargetID(profile.id),
-                source: .profile,
-                title: profile.name,
-                primaryText: profile.host,
-                secondaryText: "\(profile.user) • Port \(profile.port)"
-            )
-        }
-
-        return presetTargets + profileTargets
-    }
-
     var activeRemoteTarget: RemoteTargetSummary? {
+        guard let activeRemoteTargetID,
+              let preset = remotePresets.first(where: { $0.id == activeRemoteTargetID }) else {
+            return nil
+        }
+
+        return RemoteTargetSummary(
+            id: preset.id,
+            title: preset.name,
+            primaryText: preset.primaryText,
+            secondaryText: preset.secondaryText
+        )
+    }
+
+    var selectedRemotePreset: RemotePreset? {
         guard let activeRemoteTargetID else {
             return nil
         }
 
-        return remoteTargets.first { $0.id == activeRemoteTargetID }
+        return remotePresets.first { $0.id == activeRemoteTargetID }
     }
 
-    var selectedWorkspaceItemName: String? {
-        guard
-            let selectedFileNodeID,
-            let fileURL = urlByNodeID[selectedFileNodeID]
-        else {
-            return nil
+    var remoteConnectionStateLabel: String {
+        switch remoteConnectionState {
+        case .disconnected:
+            return "Not connected"
+        case .linking:
+            return "Linking"
+        case .connected:
+            return "Connected"
+        }
+    }
+
+    var canUseRemoteActions: Bool {
+        activeRemoteTarget != nil && remoteConnectionState == .connected
+    }
+
+    func remoteButtonLabel(for preset: RemotePreset) -> String {
+        guard activeRemoteTargetID == preset.id else {
+            return "Connect"
         }
 
-        return fileURL.lastPathComponent
+        switch remoteConnectionState {
+        case .disconnected:
+            return "Connect"
+        case .linking:
+            return "Linking"
+        case .connected:
+            return "Connected"
+        }
+    }
+
+    func isRemoteButtonEnabled(for preset: RemotePreset) -> Bool {
+        if activeRemoteTargetID == preset.id, remoteConnectionState != .disconnected {
+            return false
+        }
+
+        return true
+    }
+
+    var trimmedRemoteAccountUsername: String {
+        remoteAccountUsername.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func remoteLoginPreview(for preset: RemotePreset) -> String {
+        let username = trimmedRemoteAccountUsername.isEmpty ? "name.lastname" : trimmedRemoteAccountUsername
+        return "\(username)@\(preset.primaryText)"
+    }
+
+    var remoteOnboardingSteps: [RemoteOnboardingStep] {
+        Self.remoteOnboardingBlueprint.enumerated().map { index, step in
+            let state: RemoteOnboardingStep.State
+            switch remoteConnectionState {
+            case .disconnected:
+                state = index == 0 ? .pending : .pending
+            case .linking:
+                if index < remoteOnboardingStepIndex {
+                    state = .done
+                } else if index == remoteOnboardingStepIndex {
+                    state = .active
+                } else {
+                    state = .pending
+                }
+            case .connected:
+                state = .done
+            }
+
+            return RemoteOnboardingStep(
+                id: step.id,
+                title: step.title,
+                detail: step.detail,
+                state: state
+            )
+        }
     }
 
     var canPrepareRemoteWorkspaceUpload: Bool {
-        hasWorkspace && activeRemoteTarget != nil
-    }
-
-    var canPrepareRemoteSelectionUpload: Bool {
-        selectedWorkspaceItemName != nil && activeRemoteTarget != nil
+        hasWorkspace && canUseRemoteActions
     }
 
     private var workspaceConfigDirectoryURL: URL? {
@@ -882,6 +997,10 @@ final class StudioAppState: ObservableObject {
             activeRemoteTargetID = restoredRemoteTargetID
         }
 
+        if let restoredRemoteAccountUsername = defaults.string(forKey: PersistedKey.remoteAccountUsername) {
+            remoteAccountUsername = restoredRemoteAccountUsername
+        }
+
         let restoredExpandedDirectoryIDs = Set(defaults.stringArray(forKey: PersistedKey.expandedDirectoryIDs) ?? [])
         let restoredSelectedFileNodeID = defaults.string(forKey: PersistedKey.selectedFileNodeID)
 
@@ -954,6 +1073,15 @@ final class StudioAppState: ObservableObject {
             defaults.set(activeRemoteTargetID, forKey: PersistedKey.activeRemoteTargetID)
         } else {
             defaults.removeObject(forKey: PersistedKey.activeRemoteTargetID)
+        }
+    }
+
+    private func persistRemoteAccountUsername() {
+        let defaults = UserDefaults.standard
+        if trimmedRemoteAccountUsername.isEmpty {
+            defaults.removeObject(forKey: PersistedKey.remoteAccountUsername)
+        } else {
+            defaults.set(trimmedRemoteAccountUsername, forKey: PersistedKey.remoteAccountUsername)
         }
     }
 
@@ -1215,9 +1343,6 @@ final class StudioAppState: ObservableObject {
         runOutputText = terminalService.output
     }
 
-    private static func remoteProfileTargetID(_ profileID: UUID) -> String {
-        "profile:\(profileID.uuidString)"
-    }
 }
 
 private enum PersistedKey {
@@ -1230,6 +1355,7 @@ private enum PersistedKey {
     static let selectedFileNodeID = "studio.session.selectedFileNodeID"
     static let activePolicyID = "studio.session.activePolicyID"
     static let activeRemoteTargetID = "studio.session.activeRemoteTargetID"
+    static let remoteAccountUsername = "studio.remote.accountUsername"
 }
 
 struct EditorFileTab: Identifiable, Equatable {
@@ -1238,24 +1364,52 @@ struct EditorFileTab: Identifiable, Equatable {
 }
 
 private extension StudioAppState {
+    static let remoteOnboardingBlueprint: [(id: String, title: String, detail: String)] = [
+        (
+            id: "detect",
+            title: "Detect existing SSH setup",
+            detail: "Check whether Studio can reuse an existing Salle alias or key on this Mac."
+        ),
+        (
+            id: "account",
+            title: "Confirm Salle account",
+            detail: "Verify the `name.lastname` username that matches the selected university server."
+        ),
+        (
+            id: "key",
+            title: "Create local key",
+            detail: "Generate or reuse the SSH keypair that Studio will use for remote access."
+        ),
+        (
+            id: "install",
+            title: "Install public key",
+            detail: "Copy the public key to the selected server so future logins can skip password prompts."
+        ),
+        (
+            id: "verify",
+            title: "Verify terminal alias",
+            detail: "Make sure commands like `ssh matagalls` resolve cleanly after setup."
+        )
+    ]
+
     static let defaultRemotePresets: [RemotePreset] = [
         RemotePreset(
-            id: "preset:uni-1",
-            name: "University Server 1",
-            primaryText: "Quick-connect preset slot",
-            secondaryText: "Reserved for the first shared grading server."
+            id: "preset:montserrat",
+            name: "Montserrat",
+            primaryText: "montserrat.salle.url.edu",
+            secondaryText: "name.lastname@montserrat.salle.url.edu"
         ),
         RemotePreset(
-            id: "preset:uni-2",
-            name: "University Server 2",
-            primaryText: "Quick-connect preset slot",
-            secondaryText: "Reserved for the second shared grading server."
+            id: "preset:matagalls",
+            name: "Matagalls",
+            primaryText: "matagalls.salle.url.edu",
+            secondaryText: "name.lastname@matagalls.salle.url.edu"
         ),
         RemotePreset(
-            id: "preset:uni-3",
-            name: "University Server 3",
-            primaryText: "Quick-connect preset slot",
-            secondaryText: "Reserved for the third shared grading server."
+            id: "preset:puigpedros",
+            name: "Puigpedros",
+            primaryText: "puigpedros.salle.url.edu",
+            secondaryText: "name.lastname@puigpedros.salle.url.edu"
         )
     ]
 }
