@@ -272,6 +272,18 @@ final class StudioAppState: ObservableObject {
         return policies.first { $0.id == selectedPolicyID }
     }
 
+    var selectedPolicyDisplayName: String? {
+        if let draftName = selectedPolicyDraft?.name.trimmingCharacters(in: .whitespacesAndNewlines), !draftName.isEmpty {
+            return draftName
+        }
+
+        if let selectedPolicy {
+            return selectedPolicy.url.deletingPathExtension().lastPathComponent
+        }
+
+        return nil
+    }
+
     var activePolicyName: String? {
         guard let activePolicyID else {
             return nil
@@ -457,6 +469,75 @@ final class StudioAppState: ObservableObject {
                 message: "Couldn't save \(policy.name)."
             )
             return
+        }
+    }
+
+    func renameSelectedPolicy(to name: String) {
+        guard let workspaceRootURL else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Open a workspace before renaming a policy."
+            )
+            return
+        }
+
+        guard let policy = selectedPolicy else {
+            return
+        }
+
+        guard var draft = selectedPolicyDraft else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't load the selected policy draft."
+            )
+            return
+        }
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Policy name is required."
+            )
+            return
+        }
+
+        draft.name = trimmedName
+        if let validationError = validate(draft) {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: validationError
+            )
+            return
+        }
+
+        let serializedPolicy = draft.serializedYAML()
+        let wasActivePolicy = activePolicyID == policy.id
+
+        do {
+            let renamedPolicy = try workspaceService.renamePolicy(
+                policy,
+                to: trimmedName,
+                content: serializedPolicy,
+                in: workspaceRootURL
+            )
+            policyEditorText = serializedPolicy
+            loadedPolicyText = serializedPolicy
+            loadedPolicyDraft = draft
+            reloadWorkspaceAndPolicies(preservePolicySelection: renamedPolicy.id)
+            selectPolicyForEditing(policyID: renamedPolicy.id)
+            if wasActivePolicy {
+                activePolicyID = renamedPolicy.id
+            }
+            policyBanner = PolicyBanner(
+                kind: .success,
+                message: "Renamed policy to \(trimmedName)."
+            )
+        } catch {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't rename \(policy.name)."
+            )
         }
     }
 

@@ -1,12 +1,26 @@
 import SwiftUI
 
 struct PolicyManagerView: View {
+    private enum PolicySheet: String, Identifiable {
+        case create
+        case rename
+
+        var id: String { rawValue }
+    }
+
+    private enum PolicySection: String, CaseIterable, Hashable {
+        case compile
+        case resources
+        case testCases
+    }
+
     @ObservedObject var state: StudioAppState
 
-    @FocusState private var isCreateNameFocused: Bool
-    @State private var newPolicyName = ""
-    @State private var showingCreateSheet = false
+    @FocusState private var isPolicyNameFocused: Bool
+    @State private var policyNameInput = ""
+    @State private var activeSheet: PolicySheet?
     @State private var showingDeleteConfirmation = false
+    @State private var expandedSections = Set(PolicySection.allCases)
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,8 +38,8 @@ struct PolicyManagerView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .background(StudioTheme.editor)
-        .sheet(isPresented: $showingCreateSheet) {
-            createPolicySheet
+        .sheet(item: $activeSheet) { sheet in
+            policyNameSheet(for: sheet)
         }
         .alert("Delete policy?", isPresented: $showingDeleteConfirmation, presenting: state.selectedPolicy) { selectedPolicy in
             Button("Delete", role: .destructive) {
@@ -39,11 +53,12 @@ struct PolicyManagerView: View {
 
     private var actionBar: some View {
         HStack(spacing: 10) {
-            Button("New Policy") {
-                newPolicyName = ""
-                showingCreateSheet = true
-            }
-            .buttonStyle(.bordered)
+            Button("New Policy", action: presentCreateSheet)
+                .buttonStyle(.bordered)
+
+            Button("Rename", action: presentRenameSheet)
+                .buttonStyle(.bordered)
+                .disabled(state.selectedPolicy == nil)
 
             Button("Delete") {
                 showingDeleteConfirmation = true
@@ -56,14 +71,6 @@ struct PolicyManagerView: View {
             }
             .buttonStyle(.bordered)
             .disabled(state.selectedPolicy == nil || state.selectedPolicyID == state.activePolicyID)
-
-            Button(state.isRunInProgress ? "Running…" : "Run Workspace") {
-                state.runWorkspaceSession()
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(state.isRunInProgress ? .gray : StudioTheme.accent)
-            .keyboardShortcut("r", modifiers: [.command])
-            .disabled(!state.canRunWorkspace)
 
             Spacer(minLength: 0)
 
@@ -107,12 +114,9 @@ struct PolicyManagerView: View {
                 .foregroundStyle(StudioTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Button("Create First Policy") {
-                newPolicyName = ""
-                showingCreateSheet = true
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(StudioTheme.accent)
+            Button("Create First Policy", action: presentCreateSheet)
+                .buttonStyle(.borderedProminent)
+                .tint(StudioTheme.accent)
         }
         .padding(18)
     }
@@ -133,8 +137,6 @@ struct PolicyManagerView: View {
     private var formContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                metadataCard
-                generalSection
                 compileSection
                 resourcesSection
                 testCasesSection
@@ -143,64 +145,31 @@ struct PolicyManagerView: View {
         }
     }
 
-    private var metadataCard: some View {
-        sectionCard(title: "Policy", systemImage: "doc.text") {
-            VStack(alignment: .leading, spacing: 8) {
-                if let selectedPolicy = state.selectedPolicy {
-                    HStack(spacing: 8) {
-                        Text(selectedPolicy.id)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(StudioTheme.textSecondary)
-                            .lineLimit(1)
-
-                        if state.activePolicyID == selectedPolicy.id {
-                            badge("Active", tint: StudioTheme.accent)
-                        }
-
-                        if state.isPolicyDirty {
-                            badge("Unsaved", tint: .orange)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-        }
-    }
-
-    private var generalSection: some View {
-        sectionCard(title: "General", systemImage: "slider.horizontal.3") {
-            labeledField("Name") {
-                TextField("Lab 03 - Processes", text: draftBinding(\.name, default: ""))
-                    .textFieldStyle(.roundedBorder)
-            }
-        }
-    }
-
     private var compileSection: some View {
-        sectionCard(title: "Compile", systemImage: "hammer") {
-            VStack(alignment: .leading, spacing: 12) {
+        sectionCard(section: .compile, title: "Compile", systemImage: "hammer") {
+            HStack(alignment: .top, spacing: 12) {
                 labeledField("Source File") {
                     TextField("main.c", text: draftBinding(\.sourceFile, default: ""))
                         .textFieldStyle(.roundedBorder)
                 }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
 
-                editableStringList(
-                    title: "Flags",
-                    items: draftStrings(\.flags),
-                    placeholder: "-Wall",
-                    addLabel: "Add Flag",
-                    onUpdate: { items in
-                        updateDraft { $0.flags = items }
+                labeledField("Flags") {
+                    FlagTextField(
+                        flags: state.selectedPolicyDraft?.flags ?? [],
+                        placeholder: "-Wall -Wextra"
+                    ) { updatedFlags in
+                        updateDraft { $0.flags = updatedFlags }
                     }
-                )
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
     }
 
     private var resourcesSection: some View {
-        sectionCard(title: "Resources", systemImage: "tray.full") {
-            VStack(alignment: .leading, spacing: 12) {
+        sectionCard(section: .resources, title: "Resources", systemImage: "tray.full") {
+            HStack(alignment: .top, spacing: 12) {
                 importedFileList(
                     title: "Library Files",
                     items: draftStrings(\.libraryFiles),
@@ -216,6 +185,7 @@ struct PolicyManagerView: View {
                         }
                     }
                 )
+                .frame(maxWidth: .infinity, alignment: .topLeading)
 
                 importedFileList(
                     title: "Test Files",
@@ -232,13 +202,14 @@ struct PolicyManagerView: View {
                         }
                     }
                 )
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
     }
 
     private var testCasesSection: some View {
-        sectionCard(title: "Test Cases", systemImage: "checklist") {
-            HStack(spacing: 14) {
+        sectionCard(section: .testCases, title: "Test Cases", systemImage: "checklist") {
+            HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Cases")
@@ -288,13 +259,7 @@ struct PolicyManagerView: View {
                         }
 
                         labeledField("Standard Input") {
-                            TextEditor(text: selectedTestCaseBinding(\.input, default: ""))
-                                .font(.system(size: 12, weight: .regular, design: .monospaced))
-                                .scrollContentBackground(.hidden)
-                                .frame(minHeight: 90)
-                                .padding(8)
-                                .background(StudioTheme.pane)
-                                .clipShape(.rect(cornerRadius: 8))
+                            standardInputEditor
                         }
 
                         HStack(alignment: .top, spacing: 12) {
@@ -316,6 +281,36 @@ struct PolicyManagerView: View {
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
+    }
+
+    private var standardInputEditor: some View {
+        let inputBinding = selectedTestCaseBinding(\.input, default: "")
+        let currentInput = inputBinding.wrappedValue
+
+        return ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(StudioTheme.accent.opacity(0.10))
+
+            if currentInput.isEmpty {
+                Text("Type stdin here…")
+                    .font(.system(size: 12, weight: .regular, design: .monospaced))
+                    .foregroundStyle(StudioTheme.textSecondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 12)
+            }
+
+            TextEditor(text: inputBinding)
+                .font(.system(size: 12, weight: .regular, design: .monospaced))
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .background(.clear)
+        }
+        .frame(minHeight: 96)
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(StudioTheme.accent.opacity(0.35), lineWidth: 1)
+        )
+        .clipShape(.rect(cornerRadius: 8))
     }
 
     private func importedFileList(
@@ -376,66 +371,6 @@ struct PolicyManagerView: View {
         }
     }
 
-    private func editableStringList(
-        title: String,
-        items: [String],
-        placeholder: String,
-        addLabel: String,
-        onUpdate: @escaping ([String]) -> Void
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(StudioTheme.textPrimary)
-
-                Spacer(minLength: 0)
-
-                Button(addLabel) {
-                    var updatedItems = items
-                    updatedItems.append("")
-                    onUpdate(updatedItems)
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if items.isEmpty {
-                Text("None")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(StudioTheme.textSecondary)
-            } else {
-                VStack(spacing: 8) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { index, value in
-                        HStack(spacing: 8) {
-                            TextField(
-                                placeholder,
-                                text: Binding(
-                                    get: { value },
-                                    set: { newValue in
-                                        var updatedItems = items
-                                        updatedItems[index] = newValue
-                                        onUpdate(updatedItems)
-                                    }
-                                )
-                            )
-                            .textFieldStyle(.roundedBorder)
-
-                            Button {
-                                var updatedItems = items
-                                updatedItems.remove(at: index)
-                                onUpdate(updatedItems)
-                            } label: {
-                                Image(systemName: "minus.circle.fill")
-                                    .foregroundStyle(.red)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     private func labeledField<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -447,22 +382,53 @@ struct PolicyManagerView: View {
     }
 
     private func sectionCard<Content: View>(
+        section: PolicySection,
         title: String,
         systemImage: String,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(StudioTheme.accent)
+        let isExpanded = expandedSections.contains(section)
 
-                Text(title)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(StudioTheme.textPrimary)
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                toggleSection(section)
+            } label: {
+                HStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Image(systemName: systemImage)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(StudioTheme.accent)
+
+                        Text(title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(StudioTheme.textPrimary)
+                    }
+                    .transaction { transaction in
+                        transaction.animation = nil
+                    }
+
+                    Spacer(minLength: 0)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(StudioTheme.textSecondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.spring(response: 0.28, dampingFraction: 0.86), value: isExpanded)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
 
-            content()
+            if isExpanded {
+                content()
+                    .padding(.top, 12)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity.combined(with: .scale(scale: 0.98, anchor: .top))
+                        )
+                    )
+            }
         }
         .padding(14)
         .background(StudioTheme.pane)
@@ -497,38 +463,42 @@ struct PolicyManagerView: View {
         .background(bannerColor(for: banner.kind).opacity(0.12))
     }
 
-    private var createPolicySheet: some View {
+    private func policyNameSheet(for sheet: PolicySheet) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Create Policy")
+            Text(sheet == .create ? "Create Policy" : "Rename Policy")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(StudioTheme.textPrimary)
 
-            Text("A starter policy will be created under `policies/` in the current workspace.")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundStyle(StudioTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                sheet == .create
+                ? "A starter policy will be created under `policies/` in the current workspace."
+                : "This updates the policy name and renames the saved policy file in `policies/`."
+            )
+            .font(.system(size: 12, weight: .regular))
+            .foregroundStyle(StudioTheme.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Policy name", text: $newPolicyName)
+            TextField("Policy name", text: $policyNameInput)
                 .textFieldStyle(.roundedBorder)
-                .focused($isCreateNameFocused)
+                .focused($isPolicyNameFocused)
                 .onSubmit {
-                    createPolicyFromSheet()
+                    submitPolicyNameSheet(sheet)
                 }
 
             HStack {
                 Spacer(minLength: 0)
 
                 Button("Cancel") {
-                    showingCreateSheet = false
+                    activeSheet = nil
                 }
 
-                Button("Create") {
-                    createPolicyFromSheet()
+                Button(sheet == .create ? "Create" : "Rename") {
+                    submitPolicyNameSheet(sheet)
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(StudioTheme.accent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(newPolicyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(policyNameInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(18)
@@ -536,19 +506,39 @@ struct PolicyManagerView: View {
         .background(StudioTheme.pane)
         .onAppear {
             DispatchQueue.main.async {
-                isCreateNameFocused = true
+                isPolicyNameFocused = true
             }
         }
     }
 
-    private func createPolicyFromSheet() {
-        let trimmedName = newPolicyName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func presentCreateSheet() {
+        policyNameInput = ""
+        activeSheet = .create
+    }
+
+    private func presentRenameSheet() {
+        guard let selectedPolicyName = state.selectedPolicyDisplayName else {
+            return
+        }
+
+        policyNameInput = selectedPolicyName
+        activeSheet = .rename
+    }
+
+    private func submitPolicyNameSheet(_ sheet: PolicySheet) {
+        let trimmedName = policyNameInput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             return
         }
 
-        state.createPolicy(named: trimmedName)
-        showingCreateSheet = false
+        switch sheet {
+        case .create:
+            state.createPolicy(named: trimmedName)
+        case .rename:
+            state.renameSelectedPolicy(to: trimmedName)
+        }
+
+        activeSheet = nil
     }
 
     private func draftBinding<Value>(
@@ -630,10 +620,6 @@ struct PolicyManagerView: View {
                 .buttonStyle(.bordered)
                 .disabled(selectedFileName.isEmpty)
             }
-
-            Text("Imported files are copied into `.autoscan/expected_outputs` for this workspace.")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(StudioTheme.textSecondary)
         }
     }
 
@@ -680,14 +666,14 @@ struct PolicyManagerView: View {
         state.selectPolicyTestCase(id: draft.testCases.first?.id)
     }
 
-    private func badge(_ title: String, tint: Color) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(tint.opacity(0.14))
-            .clipShape(.rect(cornerRadius: 6))
+    private func toggleSection(_ section: PolicySection) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            if expandedSections.contains(section) {
+                expandedSections.remove(section)
+            } else {
+                expandedSections.insert(section)
+            }
+        }
     }
 
     private func bannerColor(for kind: StudioAppState.PolicyBanner.Kind) -> Color {
@@ -710,5 +696,37 @@ struct PolicyManagerView: View {
         case .info:
             return "info.circle.fill"
         }
+    }
+}
+
+private struct FlagTextField: View {
+    let flags: [String]
+    let placeholder: String
+    let onUpdate: ([String]) -> Void
+
+    @FocusState private var isFocused: Bool
+    @State private var text = ""
+
+    var body: some View {
+        TextField(placeholder, text: $text)
+            .textFieldStyle(.roundedBorder)
+            .focused($isFocused)
+            .onAppear {
+                text = flags.joined(separator: " ")
+            }
+            .onChange(of: flags) { _, newFlags in
+                if !isFocused {
+                    text = newFlags.joined(separator: " ")
+                }
+            }
+            .onChange(of: text) { _, newValue in
+                onUpdate(Self.parseFlags(from: newValue))
+            }
+    }
+
+    private static func parseFlags(from text: String) -> [String] {
+        text
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
     }
 }

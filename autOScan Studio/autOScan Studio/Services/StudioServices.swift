@@ -519,6 +519,7 @@ protocol WorkspaceService {
     func listPolicies(in rootURL: URL) throws -> [PolicyFile]
     func readPolicy(_ policy: PolicyFile) throws -> String
     func createPolicy(named name: String, content: String, in rootURL: URL) throws -> PolicyFile
+    func renamePolicy(_ policy: PolicyFile, to name: String, content: String, in rootURL: URL) throws -> PolicyFile
     func updatePolicy(_ policy: PolicyFile, content: String) throws
     func deletePolicy(_ policy: PolicyFile) throws
     func importPolicyResource(from sourceURL: URL, kind: PolicyResourceKind, in rootURL: URL) throws -> String
@@ -622,7 +623,7 @@ final class LocalWorkspaceService: WorkspaceService {
         }
 
         let safeBaseName = sanitizedPolicyName(name)
-        let fileURL = uniquePolicyFileURL(baseName: safeBaseName, in: policiesDirectory)
+        let fileURL = uniquePolicyFileURL(baseName: safeBaseName, pathExtension: "yaml", in: policiesDirectory)
         guard let data = content.data(using: .utf8, allowLossyConversion: false) else {
             throw NSError(domain: "autOScanStudio.WorkspaceService", code: 1)
         }
@@ -630,6 +631,30 @@ final class LocalWorkspaceService: WorkspaceService {
 
         let relativePath = relativeID(for: fileURL, rootURL: rootURL, isDirectory: false)
         return PolicyFile(id: relativePath, name: fileURL.lastPathComponent, url: fileURL)
+    }
+
+    func renamePolicy(_ policy: PolicyFile, to name: String, content: String, in rootURL: URL) throws -> PolicyFile {
+        let policiesDirectory = policy.url.deletingLastPathComponent()
+        let safeBaseName = sanitizedPolicyName(name)
+        let pathExtension = policy.url.pathExtension.nonEmpty ?? "yaml"
+        let destinationURL = uniquePolicyFileURL(
+            baseName: safeBaseName,
+            pathExtension: pathExtension,
+            in: policiesDirectory,
+            excluding: policy.url
+        )
+
+        if destinationURL.standardizedFileURL != policy.url.standardizedFileURL {
+            try FileManager.default.moveItem(at: policy.url, to: destinationURL)
+        }
+
+        guard let data = content.data(using: .utf8, allowLossyConversion: false) else {
+            throw NSError(domain: "autOScanStudio.WorkspaceService", code: 6)
+        }
+        try data.write(to: destinationURL, options: .atomic)
+
+        let relativePath = relativeID(for: destinationURL, rootURL: rootURL, isDirectory: false)
+        return PolicyFile(id: relativePath, name: destinationURL.lastPathComponent, url: destinationURL)
     }
 
     func updatePolicy(_ policy: PolicyFile, content: String) throws {
@@ -749,13 +774,18 @@ final class LocalWorkspaceService: WorkspaceService {
         return relative
     }
 
-    private func uniquePolicyFileURL(baseName: String, in directoryURL: URL) -> URL {
+    private func uniquePolicyFileURL(
+        baseName: String,
+        pathExtension: String,
+        in directoryURL: URL,
+        excluding excludedURL: URL? = nil
+    ) -> URL {
         var candidateName = baseName
         var suffix = 1
 
         while true {
-            let candidateURL = directoryURL.appendingPathComponent(candidateName).appendingPathExtension("yaml")
-            if !FileManager.default.fileExists(atPath: candidateURL.path) {
+            let candidateURL = directoryURL.appendingPathComponent(candidateName).appendingPathExtension(pathExtension)
+            if candidateURL.standardizedFileURL == excludedURL?.standardizedFileURL || !FileManager.default.fileExists(atPath: candidateURL.path) {
                 return candidateURL
             }
             suffix += 1

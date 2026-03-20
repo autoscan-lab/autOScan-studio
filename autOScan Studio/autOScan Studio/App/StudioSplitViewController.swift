@@ -17,7 +17,7 @@ final class StudioSplitViewController: NSSplitViewController {
         self.state = state
         centerSplitViewController = StudioCenterSplitViewController(state: state)
 
-        let sidebarController = NSHostingController(rootView: SidebarContainerView(state: state))
+        let sidebarController = makeHostingController(rootView: SidebarContainerView(state: state))
         sidebarController.view.wantsLayer = true
         sidebarController.view.layer?.cornerRadius = 0
         sidebarController.view.layer?.masksToBounds = true
@@ -34,8 +34,8 @@ final class StudioSplitViewController: NSSplitViewController {
         mainSplitItem.minimumThickness = 420
         mainSplitItem.titlebarSeparatorStyle = .none
 
-        let inspectorController = NSHostingController(rootView: InspectorPaneView(state: state))
-        inspectorSplitItem = NSSplitViewItem(inspectorWithViewController: inspectorController)
+        let inspectorController = makeHostingController(rootView: InspectorPaneView(state: state))
+        inspectorSplitItem = NSSplitViewItem(viewController: inspectorController)
         inspectorSplitItem.minimumThickness = 260
         inspectorSplitItem.maximumThickness = 460
         inspectorSplitItem.collapseBehavior = .useConstraints
@@ -93,6 +93,21 @@ final class StudioSplitViewController: NSSplitViewController {
             inspectorSplitItem.preferredThicknessFraction = Self.defaultInspectorFraction
         }
         inspectorSplitItem.isCollapsed = !visible
+        splitView.adjustSubviews()
+        view.layoutSubtreeIfNeeded()
         state.isInspectorVisible = visible
     }
+}
+
+@MainActor
+private func makeHostingController<Content: View>(rootView: Content) -> NSHostingController<Content> {
+    let controller = NSHostingController(rootView: rootView)
+    _ = controller.view
+    controller.preferredContentSize = .zero
+
+    if let hostingView = controller.view as? NSHostingView<Content> {
+        hostingView.sizingOptions = []
+    }
+
+    return controller
 }

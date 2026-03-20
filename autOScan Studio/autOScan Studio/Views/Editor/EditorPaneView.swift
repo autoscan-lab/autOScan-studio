@@ -88,17 +88,11 @@ struct EditorPaneView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(StudioTheme.textSecondary)
 
-                if let selectedPolicy = state.selectedPolicy {
-                    Text(selectedPolicy.name)
+                if let selectedPolicyName = state.selectedPolicyDisplayName {
+                    Text(selectedPolicyName)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(StudioTheme.textPrimary)
                         .lineLimit(1)
-
-                    if state.activePolicyID == selectedPolicy.id {
-                        Text("Active")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(StudioTheme.accent)
-                    }
 
                     if state.isPolicyDirty {
                         Text("Unsaved changes")

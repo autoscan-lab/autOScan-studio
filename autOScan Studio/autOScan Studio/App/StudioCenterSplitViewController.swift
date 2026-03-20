@@ -8,21 +8,22 @@ final class StudioCenterSplitViewController: NSSplitViewController {
     private let state: StudioAppState
     private let editorSplitItem: NSSplitViewItem
     private let outputSplitItem: NSSplitViewItem
-    private var isOutputAttached = false
 
     init(state: StudioAppState) {
         self.state = state
 
-        let editorViewController = NSHostingController(rootView: EditorPaneView(state: state))
+        let editorViewController = makeHostingController(rootView: EditorPaneView(state: state))
         editorSplitItem = NSSplitViewItem(viewController: editorViewController)
         editorSplitItem.minimumThickness = 220
 
-        let outputViewController = NSHostingController(rootView: OutputPaneView(state: state))
+        let outputViewController = makeHostingController(rootView: OutputPaneView(state: state))
         outputSplitItem = NSSplitViewItem(viewController: outputViewController)
         outputSplitItem.minimumThickness = 120
-        outputSplitItem.canCollapse = false
+        outputSplitItem.canCollapse = true
+        outputSplitItem.collapseBehavior = .useConstraints
         outputSplitItem.holdingPriority = .defaultLow
         outputSplitItem.preferredThicknessFraction = Self.defaultOutputFraction
+        outputSplitItem.isCollapsed = !state.isOutputVisible
 
         super.init(nibName: nil, bundle: nil)
     }
@@ -48,9 +49,8 @@ final class StudioCenterSplitViewController: NSSplitViewController {
         view.layer?.backgroundColor = StudioTheme.canvasColor.cgColor
 
         addSplitViewItem(editorSplitItem)
-        if state.isOutputVisible {
-            attachOutputPane()
-        }
+        addSplitViewItem(outputSplitItem)
+        outputSplitItem.isCollapsed = !state.isOutputVisible
     }
 
     func toggleOutputPane() {
@@ -62,37 +62,24 @@ final class StudioCenterSplitViewController: NSSplitViewController {
             state.isOutputVisible = visible
         }
 
-        DispatchQueue.main.async { [weak self] in
-            guard let self else {
-                return
-            }
-
-            if visible {
-                self.attachOutputPane()
-            } else {
-                self.detachOutputPane()
-            }
+        if visible {
+            outputSplitItem.preferredThicknessFraction = Self.defaultOutputFraction
         }
-    }
-
-    private func attachOutputPane() {
-        guard !isOutputAttached else {
-            return
-        }
-
-        outputSplitItem.preferredThicknessFraction = Self.defaultOutputFraction
-        addSplitViewItem(outputSplitItem)
-        isOutputAttached = true
+        outputSplitItem.isCollapsed = !visible
         splitView.adjustSubviews()
+        view.layoutSubtreeIfNeeded()
+    }
+}
+
+@MainActor
+private func makeHostingController<Content: View>(rootView: Content) -> NSHostingController<Content> {
+    let controller = NSHostingController(rootView: rootView)
+    _ = controller.view
+    controller.preferredContentSize = .zero
+
+    if let hostingView = controller.view as? NSHostingView<Content> {
+        hostingView.sizingOptions = []
     }
 
-    private func detachOutputPane() {
-        guard isOutputAttached else {
-            return
-        }
-
-        removeSplitViewItem(outputSplitItem)
-        isOutputAttached = false
-        splitView.adjustSubviews()
-    }
+    return controller
 }
