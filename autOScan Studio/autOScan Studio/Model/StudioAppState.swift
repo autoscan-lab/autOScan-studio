@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import UniformTypeIdentifiers
 
 @MainActor
 final class StudioAppState: ObservableObject {
@@ -280,6 +281,13 @@ final class StudioAppState: ObservableObject {
         return policies.first { $0.id == activePolicyID }?.name
     }
 
+    var activePolicy: PolicyFile? {
+        guard let activePolicyID else {
+            return nil
+        }
+        return policies.first { $0.id == activePolicyID }
+    }
+
     var currentRunnablePolicy: PolicyFile? {
         if let selectedPolicy {
             return selectedPolicy
@@ -294,6 +302,54 @@ final class StudioAppState: ObservableObject {
 
     var canRunWorkspace: Bool {
         hasWorkspace && currentRunnablePolicy != nil && !isRunInProgress
+    }
+
+    var selectedSubmissionURL: URL? {
+        guard
+            let workspaceRootURL,
+            let selectedFileNodeID,
+            let selectedFileURL = urlByNodeID[selectedFileNodeID],
+            !selectedFileURL.hasDirectoryPath
+        else {
+            return nil
+        }
+
+        let disallowedRoots = [
+            workspaceRootURL.appendingPathComponent("policies", isDirectory: true).path,
+            workspaceRootURL.appendingPathComponent(".autoscan", isDirectory: true).path
+        ]
+        let selectedPath = selectedFileURL.path
+        guard disallowedRoots.allSatisfy({ !selectedPath.hasPrefix($0 + "/") && selectedPath != $0 }) else {
+            return nil
+        }
+
+        return selectedFileURL.deletingLastPathComponent()
+    }
+
+    var selectedSubmissionName: String? {
+        selectedSubmissionURL?.lastPathComponent
+    }
+
+    var canRunSelectedSubmission: Bool {
+        selectedSubmissionURL != nil && currentRunnablePolicy != nil && !isRunInProgress
+    }
+
+    var hasLatestRunResults: Bool {
+        latestRunReport != nil
+    }
+
+    var problematicSubmissions: [EngineRunSubmission] {
+        guard let latestRunReport else {
+            return []
+        }
+
+        return latestRunReport.submissions.filter { submission in
+            !submission.compileOK || submission.bannedCount > 0
+        }
+    }
+
+    var firstProblematicSubmission: EngineRunSubmission? {
+        problematicSubmissions.first
     }
 
     var isPolicyDirty: Bool {
@@ -589,6 +645,23 @@ final class StudioAppState: ObservableObject {
         }
     }
 
+    func activatePolicy(policyID: String) {
+        guard policies.contains(where: { $0.id == policyID }) else {
+            return
+        }
+
+        activePolicyID = policyID
+    }
+
+    func openActivePolicyEditor() {
+        guard let activePolicyID else {
+            return
+        }
+
+        sidebarMode = .policies
+        selectPolicyForEditing(policyID: activePolicyID)
+    }
+
     func importLibraryFileToSelectedPolicy() {
         importPolicyResource(
             kind: .library,
@@ -739,6 +812,128 @@ final class StudioAppState: ObservableObject {
                     self.currentRunTask = nil
                 }
             }
+        }
+    }
+
+    func runSelectedSubmission() {
+        guard !isRunInProgress else {
+            return
+        }
+
+        guard let workspaceRootURL else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Open a workspace before starting a run."
+            )
+            return
+        }
+
+        guard let submissionURL = selectedSubmissionURL else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Select a submission file in the workspace to run just that submission."
+            )
+            return
+        }
+
+        guard let policy = currentRunnablePolicy else {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Select or activate a policy before running."
+            )
+            return
+        }
+
+        if isPolicyDirty {
+            saveSelectedPolicyEdits()
+            guard !isPolicyDirty else {
+                return
+            }
+        }
+
+        let submissionName = submissionURL.lastPathComponent
+        currentRunTask?.cancel()
+        latestRunReport = nil
+        latestRunError = nil
+        runStatusMessage = "Running \(submissionName)…"
+        isRunInProgress = true
+        isOutputVisible = true
+        isInspectorVisible = true
+        clearRunOutput()
+        appendRunOutput("Running submission \(submissionName) in \(workspaceRootURL.lastPathComponent) with \(policy.name).")
+
+        let request = RunSubmissionRequest(
+            submissionPath: submissionURL.path,
+            policyPath: policy.url.path,
+            configDirectoryPath: workspaceConfigDirectoryURL?.path
+        )
+
+        currentRunTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let report = try await engineClient.runSubmission(request: request) { [weak self] event in
+                    await MainActor.run {
+                        self?.handleRunEvent(event)
+                    }
+                }
+
+                await MainActor.run {
+                    self.latestRunReport = report
+                    self.isRunInProgress = false
+                    self.runStatusMessage = "Submission finished: \(submissionName)"
+                    self.appendRunOutput("Submission finished in \(report.summary.durationMs) ms.")
+                    self.currentRunTask = nil
+                }
+            } catch {
+                await MainActor.run {
+                    self.isRunInProgress = false
+                    self.latestRunError = error.localizedDescription
+                    self.runStatusMessage = "Submission failed"
+                    self.appendRunOutput("Submission failed: \(error.localizedDescription)")
+                    self.policyBanner = PolicyBanner(
+                        kind: .error,
+                        message: error.localizedDescription
+                    )
+                    self.currentRunTask = nil
+                }
+            }
+        }
+    }
+
+    func exportLatestRunReport() {
+        guard let latestRunReport else {
+            return
+        }
+
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = defaultReportFileName(for: latestRunReport)
+        panel.prompt = "Export Report"
+        panel.message = "Save the latest grading report as JSON."
+
+        guard panel.runModal() == .OK, let destinationURL = panel.url else {
+            return
+        }
+
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(latestRunReport)
+            try data.write(to: destinationURL, options: .atomic)
+            policyBanner = PolicyBanner(
+                kind: .success,
+                message: "Exported the latest report to \(destinationURL.lastPathComponent)."
+            )
+        } catch {
+            policyBanner = PolicyBanner(
+                kind: .error,
+                message: "Couldn't export the latest report."
+            )
         }
     }
 
@@ -1088,6 +1283,13 @@ final class StudioAppState: ObservableObject {
     private func appendRunOutput(_ line: String) {
         terminalService.append(line)
         runOutputText = terminalService.output
+    }
+
+    private func defaultReportFileName(for report: EngineRunReport) -> String {
+        let policySlug = report.summary.policyName
+            .lowercased()
+            .replacingOccurrences(of: " ", with: "-")
+        return "\(policySlug)-report.json"
     }
 }
 

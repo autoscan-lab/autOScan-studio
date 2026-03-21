@@ -4,10 +4,12 @@ import SwiftUI
 @MainActor
 final class StudioCenterSplitViewController: NSSplitViewController {
     private static let defaultOutputFraction: CGFloat = 0.26
+    private static let outputMinimumThickness: CGFloat = 120
 
     private let state: StudioAppState
     private let editorSplitItem: NSSplitViewItem
     private let outputSplitItem: NSSplitViewItem
+    private var hasAppliedInitialOutputLayout = false
 
     init(state: StudioAppState) {
         self.state = state
@@ -18,12 +20,9 @@ final class StudioCenterSplitViewController: NSSplitViewController {
 
         let outputViewController = makeHostingController(rootView: OutputPaneView(state: state))
         outputSplitItem = NSSplitViewItem(viewController: outputViewController)
-        outputSplitItem.minimumThickness = 120
-        outputSplitItem.canCollapse = true
-        outputSplitItem.collapseBehavior = .useConstraints
+        outputSplitItem.minimumThickness = state.isOutputVisible ? Self.outputMinimumThickness : 0
         outputSplitItem.holdingPriority = .defaultLow
         outputSplitItem.preferredThicknessFraction = Self.defaultOutputFraction
-        outputSplitItem.isCollapsed = !state.isOutputVisible
 
         super.init(nibName: nil, bundle: nil)
     }
@@ -50,7 +49,16 @@ final class StudioCenterSplitViewController: NSSplitViewController {
 
         addSplitViewItem(editorSplitItem)
         addSplitViewItem(outputSplitItem)
-        outputSplitItem.isCollapsed = !state.isOutputVisible
+        outputSplitItem.viewController.view.isHidden = !state.isOutputVisible
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+
+        if !state.isOutputVisible || !hasAppliedInitialOutputLayout {
+            applyOutputPaneLayout()
+            hasAppliedInitialOutputLayout = true
+        }
     }
 
     func toggleOutputPane() {
@@ -63,23 +71,43 @@ final class StudioCenterSplitViewController: NSSplitViewController {
         }
 
         if visible {
-            outputSplitItem.preferredThicknessFraction = Self.defaultOutputFraction
+            outputSplitItem.minimumThickness = Self.outputMinimumThickness
+        } else {
+            outputSplitItem.minimumThickness = 0
         }
-        outputSplitItem.isCollapsed = !visible
-        splitView.adjustSubviews()
-        view.layoutSubtreeIfNeeded()
-    }
-}
 
-@MainActor
-private func makeHostingController<Content: View>(rootView: Content) -> NSHostingController<Content> {
-    let controller = NSHostingController(rootView: rootView)
-    _ = controller.view
-    controller.preferredContentSize = .zero
-
-    if let hostingView = controller.view as? NSHostingView<Content> {
-        hostingView.sizingOptions = []
+        view.needsLayout = true
+        applyOutputPaneLayout()
     }
 
-    return controller
+    private func applyOutputPaneLayout() {
+        guard splitViewItems.count == 2 else {
+            return
+        }
+
+        let totalHeight = splitView.bounds.height
+        let dividerThickness = splitView.dividerThickness
+        let availableHeight = max(0, totalHeight - dividerThickness)
+        guard availableHeight > 0 else {
+            return
+        }
+
+        let outputView = outputSplitItem.viewController.view
+        outputView.isHidden = false
+
+        let dividerPosition: CGFloat
+        if state.isOutputVisible {
+            let desiredOutputHeight = max(
+                Self.outputMinimumThickness,
+                availableHeight * Self.defaultOutputFraction
+            )
+            let outputHeight = min(desiredOutputHeight, availableHeight)
+            dividerPosition = max(0, availableHeight - outputHeight)
+        } else {
+            dividerPosition = availableHeight
+        }
+
+        splitView.setPosition(dividerPosition, ofDividerAt: 0)
+        outputView.isHidden = !state.isOutputVisible
+    }
 }

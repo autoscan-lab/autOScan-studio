@@ -5,6 +5,7 @@ import SwiftUI
 final class StudioSplitViewController: NSSplitViewController {
     static let minSidebarWidth: CGFloat = 242
     private static let defaultInspectorFraction: CGFloat = 0.24
+    private static let inspectorMinimumThickness: CGFloat = 260
 
     let centerSplitViewController: StudioCenterSplitViewController
 
@@ -36,9 +37,8 @@ final class StudioSplitViewController: NSSplitViewController {
 
         let inspectorController = makeHostingController(rootView: InspectorPaneView(state: state))
         inspectorSplitItem = NSSplitViewItem(viewController: inspectorController)
-        inspectorSplitItem.minimumThickness = 260
+        inspectorSplitItem.minimumThickness = Self.inspectorMinimumThickness
         inspectorSplitItem.maximumThickness = 460
-        inspectorSplitItem.collapseBehavior = .useConstraints
         inspectorSplitItem.titlebarSeparatorStyle = .none
         inspectorSplitItem.isSpringLoaded = true
         inspectorSplitItem.holdingPriority = .defaultLow
@@ -90,24 +90,15 @@ final class StudioSplitViewController: NSSplitViewController {
 
     func setInspectorVisible(_ visible: Bool) {
         if visible {
+            inspectorSplitItem.minimumThickness = Self.inspectorMinimumThickness
             inspectorSplitItem.preferredThicknessFraction = Self.defaultInspectorFraction
+            inspectorSplitItem.isCollapsed = false
+        } else {
+            inspectorSplitItem.minimumThickness = 0
+            inspectorSplitItem.isCollapsed = true
         }
-        inspectorSplitItem.isCollapsed = !visible
-        splitView.adjustSubviews()
-        view.layoutSubtreeIfNeeded()
+
+        view.needsLayout = true
         state.isInspectorVisible = visible
     }
-}
-
-@MainActor
-private func makeHostingController<Content: View>(rootView: Content) -> NSHostingController<Content> {
-    let controller = NSHostingController(rootView: rootView)
-    _ = controller.view
-    controller.preferredContentSize = .zero
-
-    if let hostingView = controller.view as? NSHostingView<Content> {
-        hostingView.sizingOptions = []
-    }
-
-    return controller
 }
