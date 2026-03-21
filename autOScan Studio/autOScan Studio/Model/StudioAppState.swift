@@ -5,6 +5,11 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class StudioAppState: ObservableObject {
+    enum EditorDocumentKind {
+        case source
+        case notice
+    }
+
     struct PolicyBanner: Identifiable {
         enum Kind {
             case success
@@ -51,7 +56,9 @@ final class StudioAppState: ObservableObject {
     @Published private(set) var workspaceNodes: [WorkspaceNode] = []
     @Published private(set) var toolbarTitle = "No file selected"
     @Published private(set) var openFileNodeIDs: [String] = []
-    @Published private(set) var editorText = ""
+    @Published private(set) var editorText = "Select a file to preview."
+    @Published private(set) var editorDocumentKind: EditorDocumentKind = .notice
+    @Published private(set) var editorFileURL: URL?
     @Published private(set) var policies: [PolicyFile] = []
     @Published var selectedPolicyID: String?
     @Published var activePolicyID: String? {
@@ -208,7 +215,9 @@ final class StudioAppState: ObservableObject {
         guard let nodeID, let fileURL = urlByNodeID[nodeID], !fileURL.hasDirectoryPath else {
             selectedFileNodeID = nil
             toolbarTitle = workspaceDisplayName
-            editorText = ""
+            editorFileURL = nil
+            editorText = "Select a file to preview."
+            editorDocumentKind = .notice
             return
         }
 
@@ -216,18 +225,22 @@ final class StudioAppState: ObservableObject {
         if openFileNodeIDs.contains(nodeID) == false {
             openFileNodeIDs.append(nodeID)
         }
-        toolbarTitle = workspaceDisplayName
+        toolbarTitle = fileURL.lastPathComponent
+        editorFileURL = fileURL
 
         do {
             let fileLoadResult = try workspaceService.readFile(at: fileURL)
             switch fileLoadResult {
             case .text(let text):
                 editorText = text
+                editorDocumentKind = .source
             case .tooLarge, .unsupportedEncoding:
-                editorText = ""
+                editorText = editorFallbackMessage(for: fileLoadResult)
+                editorDocumentKind = .notice
             }
         } catch {
-            editorText = ""
+            editorText = "Preview unavailable.\n\nStudio couldn't read this file."
+            editorDocumentKind = .notice
         }
     }
 
@@ -1247,6 +1260,17 @@ final class StudioAppState: ObservableObject {
         }
 
         return nil
+    }
+
+    private func editorFallbackMessage(for result: WorkspaceFileLoadResult) -> String {
+        switch result {
+        case .text:
+            return ""
+        case .tooLarge:
+            return "Preview unavailable.\n\nThis file is too large to display in Studio."
+        case .unsupportedEncoding:
+            return "Preview unavailable.\n\nThis file isn't readable as UTF-8 text."
+        }
     }
 
     private func handleRunEvent(_ event: EngineRunEvent) {

@@ -18,7 +18,11 @@ struct EditorPaneView: View {
                 if isShowingPolicyEditor {
                     PolicyManagerView(state: state)
                 } else {
-                    CodeTextView(text: state.editorText)
+                    CodeTextView(
+                        text: state.editorText,
+                        fileURL: state.editorFileURL,
+                        contentKind: state.editorDocumentKind == .source ? .source : .notice
+                    )
                 }
             }
         }
