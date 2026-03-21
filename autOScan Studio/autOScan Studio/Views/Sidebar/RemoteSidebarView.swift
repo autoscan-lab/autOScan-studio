@@ -21,6 +21,7 @@ struct RemoteSidebarView: View {
             VStack(spacing: 8) {
                 ForEach(state.remotePresets) { preset in
                     let isActive = state.activeRemoteTarget?.id == preset.id
+                    let isActionEnabled = state.isRemoteButtonEnabled(for: preset)
 
                     HStack(spacing: 10) {
                         Text(preset.name)
@@ -34,14 +35,14 @@ struct RemoteSidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(isActive ? StudioTheme.textPrimary : StudioTheme.textSecondary)
+                        .foregroundStyle(tagForegroundStyle(isActive: isActive, isEnabled: isActionEnabled))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 999, style: .continuous)
-                                .fill(isActive ? StudioTheme.accent.opacity(0.22) : StudioTheme.hover)
+                                .fill(tagBackgroundStyle(isActive: isActive, isEnabled: isActionEnabled))
                         )
-                        .disabled(!state.isRemoteButtonEnabled(for: preset))
+                        .disabled(!isActionEnabled)
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -156,5 +157,29 @@ private extension RemoteSidebarView {
     enum ActionProminence {
         case primary
         case secondary
+    }
+
+    func tagForegroundStyle(isActive: Bool, isEnabled: Bool) -> Color {
+        if isActive {
+            return StudioTheme.textPrimary
+        }
+
+        if !isEnabled {
+            return StudioTheme.textSecondary.opacity(0.7)
+        }
+
+        return StudioTheme.textSecondary
+    }
+
+    func tagBackgroundStyle(isActive: Bool, isEnabled: Bool) -> Color {
+        if isActive {
+            return StudioTheme.accent.opacity(0.22)
+        }
+
+        if !isEnabled {
+            return StudioTheme.hover.opacity(0.8)
+        }
+
+        return StudioTheme.hover
     }
 }

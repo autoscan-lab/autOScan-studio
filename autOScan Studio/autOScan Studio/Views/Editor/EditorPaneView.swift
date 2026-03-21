@@ -136,15 +136,17 @@ struct EditorPaneView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(StudioTheme.textPrimary)
 
-                Text(state.remoteConnectionStateLabel)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(StudioTheme.textSecondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule(style: .continuous)
-                            .fill(StudioTheme.hover)
-                    )
+                if state.remoteConnectionState == .connected {
+                    Text("SSH Live")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(StudioTheme.textPrimary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(StudioTheme.accent.opacity(0.22))
+                        )
+                }
 
                 Spacer(minLength: 0)
             }

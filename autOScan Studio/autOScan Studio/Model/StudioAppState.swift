@@ -43,9 +43,15 @@ final class StudioAppState: ObservableObject {
         let state: State
     }
 
+    enum RemoteSetupState: Equatable {
+        case needsSetup
+        case settingUp
+        case ready
+    }
+
     enum RemoteConnectionState: Equatable {
         case disconnected
-        case linking
+        case connecting
         case connected
     }
 
@@ -100,10 +106,21 @@ final class StudioAppState: ObservableObject {
     @Published var remoteAccountUsername = "" {
         didSet {
             persistRemoteAccountUsername()
+            if trimmedRemoteAccountUsername.isEmpty == false,
+               remoteStatusMessage?.contains("name.lastname") == true {
+                remoteStatusMessage = nil
+            }
         }
     }
+    @Published var remoteSetupState: RemoteSetupState = .needsSetup
     @Published var remoteConnectionState: RemoteConnectionState = .disconnected
-    @Published var remoteOnboardingStepIndex = 0
+    @Published private(set) var remoteSetupStepIndex = 0
+    @Published private(set) var remoteStatusMessage: String?
+    @Published var remoteInstallerInput = ""
+    @Published private(set) var remoteInstallerOutput = ""
+    @Published private(set) var remoteInstallerPrompt: RemoteInstallerPrompt?
+    @Published private(set) var isRemoteInstallerVisible = false
+    @Published private(set) var isRemoteInstallerRunning = false
     @Published var policyEditorText = ""
     @Published private(set) var selectedPolicyDraft: PolicyDraft?
     @Published var selectedPolicyTestCaseID: UUID?
@@ -134,23 +151,34 @@ final class StudioAppState: ObservableObject {
     private let engineClient: EngineClient
     private let workspaceService: WorkspaceService
     private let terminalService: TerminalService
+    private let remoteAccessService: RemoteAccessService
 
     private var isRestoringSession = false
     private var activeSecurityScopedWorkspaceURL: URL?
     private var currentRunTask: Task<Void, Never>?
+    private var remoteSetupTask: Task<Void, Never>?
+    private var remoteConnectionTask: Task<Void, Never>?
+    private var remoteRefreshTask: Task<Void, Never>?
+    private var remoteInstallerTask: Task<Void, Never>?
 
     init(
         engineClient: EngineClient = BridgeEngineClient(),
         workspaceService: WorkspaceService = LocalWorkspaceService(),
-        terminalService: TerminalService = InMemoryTerminalService()
+        terminalService: TerminalService = InMemoryTerminalService(),
+        remoteAccessService: RemoteAccessService = LocalRemoteAccessService()
     ) {
         self.engineClient = engineClient
         self.workspaceService = workspaceService
         self.terminalService = terminalService
+        self.remoteAccessService = remoteAccessService
         restorePersistedSession()
     }
 
     deinit {
+        remoteSetupTask?.cancel()
+        remoteConnectionTask?.cancel()
+        remoteRefreshTask?.cancel()
+        remoteInstallerTask?.cancel()
         activeSecurityScopedWorkspaceURL?.stopAccessingSecurityScopedResource()
     }
 
@@ -253,64 +281,75 @@ final class StudioAppState: ObservableObject {
             return
         }
 
-        activeRemoteTargetID = preset.id
-        if remoteConnectionState != .disconnected {
-            remoteConnectionState = .disconnected
+        if let previousHost = selectedRemoteHost {
+            Task { [remoteAccessService] in
+                await remoteAccessService.disconnect(from: previousHost)
+            }
         }
-        remoteOnboardingStepIndex = 0
-    }
-
-    func clearActiveRemoteTarget() {
-        activeRemoteTargetID = nil
-        remoteConnectionState = .disconnected
-        remoteOnboardingStepIndex = 0
+        cancelRemoteConnection()
+        hideRemoteInstaller()
+        activeRemoteTargetID = preset.id
+        setRemoteStatus(nil)
+        refreshRemoteEnvironment()
     }
 
     func handleRemoteConnectionAction(for preset: RemotePreset) {
+        guard !isRemoteInstallerVisible else {
+            return
+        }
+
         if activeRemoteTargetID != preset.id {
             selectRemotePreset(preset)
         }
 
-        switch remoteConnectionState {
-        case .disconnected:
-            remoteConnectionState = .linking
-            remoteOnboardingStepIndex = 0
-        case .linking:
+        switch remoteSetupState {
+        case .needsSetup:
+            guard !trimmedRemoteAccountUsername.isEmpty else {
+                setRemoteStatus("Enter your `name.lastname` Salle username first.")
+                return
+            }
+            startRemoteSetup()
+        case .settingUp:
             return
-        case .connected:
-            return
+        case .ready:
+            startRemoteConnection()
         }
-    }
-
-    func advanceRemoteOnboardingMock() {
-        guard activeRemoteTargetID != nil else {
-            return
-        }
-
-        let finalIndex = max(Self.remoteOnboardingBlueprint.count - 1, 0)
-        if remoteConnectionState != .linking {
-            remoteConnectionState = .linking
-        }
-
-        if remoteOnboardingStepIndex < finalIndex {
-            remoteOnboardingStepIndex += 1
-        } else {
-            remoteConnectionState = .connected
-        }
-    }
-
-    func restartRemoteOnboardingMock() {
-        guard activeRemoteTargetID != nil else {
-            return
-        }
-
-        remoteConnectionState = .linking
-        remoteOnboardingStepIndex = 0
     }
 
     func disconnectRemoteConnection() {
-        remoteConnectionState = .disconnected
-        remoteOnboardingStepIndex = 0
+        if let selectedRemoteHost {
+            Task { [remoteAccessService] in
+                await remoteAccessService.disconnect(from: selectedRemoteHost)
+            }
+        }
+        cancelRemoteConnection()
+    }
+
+    func submitRemoteInstallerInput() {
+        let trimmedInput = remoteInstallerInput.trimmingCharacters(in: .newlines)
+        guard !trimmedInput.isEmpty else {
+            return
+        }
+
+        let payload = remoteInstallerInput
+        remoteInstallerInput = ""
+        remoteInstallerPrompt = nil
+
+        Task { [remoteAccessService] in
+            await remoteAccessService.sendInstallerInput(payload)
+        }
+    }
+
+    func cancelRemoteInstaller() {
+        Task { [remoteAccessService] in
+            await remoteAccessService.cancelPublicKeyInstall()
+        }
+        hideRemoteInstaller()
+        setRemoteStatus("Public key install cancelled.")
+    }
+
+    func dismissRemoteInstaller() {
+        hideRemoteInstaller()
     }
 
     func isDirectoryExpanded(_ nodeID: String) -> Bool {
@@ -386,15 +425,15 @@ final class StudioAppState: ObservableObject {
         return remotePresets.first { $0.id == activeRemoteTargetID }
     }
 
-    var remoteConnectionStateLabel: String {
-        switch remoteConnectionState {
-        case .disconnected:
-            return "Not connected"
-        case .linking:
-            return "Linking"
-        case .connected:
-            return "Connected"
+    var selectedRemoteHost: RemoteSSHHost? {
+        guard let preset = selectedRemotePreset else {
+            return nil
         }
+
+        return RemoteSSHHost(
+            alias: preset.name.lowercased(),
+            host: preset.primaryText
+        )
     }
 
     var canUseRemoteActions: Bool {
@@ -402,22 +441,44 @@ final class StudioAppState: ObservableObject {
     }
 
     func remoteButtonLabel(for preset: RemotePreset) -> String {
-        guard activeRemoteTargetID == preset.id else {
-            return "Connect"
+        let isSelected = activeRemoteTargetID == preset.id
+        if !isSelected {
+            return remoteSetupState == .ready ? "Connect" : "Set Up"
         }
 
-        switch remoteConnectionState {
-        case .disconnected:
-            return "Connect"
-        case .linking:
-            return "Linking"
-        case .connected:
-            return "Connected"
+        switch remoteSetupState {
+        case .needsSetup:
+            return "Set Up"
+        case .settingUp:
+            return "Setup"
+        case .ready:
+            switch remoteConnectionState {
+            case .disconnected:
+                return "Connect"
+            case .connecting:
+                return "Joining"
+            case .connected:
+                return "Connected"
+            }
         }
     }
 
     func isRemoteButtonEnabled(for preset: RemotePreset) -> Bool {
-        if activeRemoteTargetID == preset.id, remoteConnectionState != .disconnected {
+        if isRemoteInstallerVisible {
+            return false
+        }
+
+        if activeRemoteTargetID == preset.id {
+            if remoteSetupState == .settingUp {
+                return false
+            }
+
+            if remoteConnectionState != .disconnected {
+                return false
+            }
+        }
+
+        if remoteSetupState == .settingUp || remoteConnectionState == .connecting {
             return false
         }
 
@@ -434,20 +495,20 @@ final class StudioAppState: ObservableObject {
     }
 
     var remoteOnboardingSteps: [RemoteOnboardingStep] {
-        Self.remoteOnboardingBlueprint.enumerated().map { index, step in
+        Self.remoteSetupBlueprint.enumerated().map { index, step in
             let state: RemoteOnboardingStep.State
-            switch remoteConnectionState {
-            case .disconnected:
-                state = index == 0 ? .pending : .pending
-            case .linking:
-                if index < remoteOnboardingStepIndex {
+            switch remoteSetupState {
+            case .needsSetup:
+                state = .pending
+            case .settingUp:
+                if index < remoteSetupStepIndex {
                     state = .done
-                } else if index == remoteOnboardingStepIndex {
+                } else if index == remoteSetupStepIndex {
                     state = .active
                 } else {
                     state = .pending
                 }
-            case .connected:
+            case .ready:
                 state = .done
             }
 
@@ -460,8 +521,13 @@ final class StudioAppState: ObservableObject {
         }
     }
 
-    var canPrepareRemoteWorkspaceUpload: Bool {
-        hasWorkspace && canUseRemoteActions
+    var remoteHosts: [RemoteSSHHost] {
+        remotePresets.map { preset in
+            RemoteSSHHost(
+                alias: preset.name.lowercased(),
+                host: preset.primaryText
+            )
+        }
     }
 
     private var workspaceConfigDirectoryURL: URL? {
@@ -1001,6 +1067,10 @@ final class StudioAppState: ObservableObject {
             remoteAccountUsername = restoredRemoteAccountUsername
         }
 
+        if activeRemoteTargetID != nil {
+            refreshRemoteEnvironment()
+        }
+
         let restoredExpandedDirectoryIDs = Set(defaults.stringArray(forKey: PersistedKey.expandedDirectoryIDs) ?? [])
         let restoredSelectedFileNodeID = defaults.string(forKey: PersistedKey.selectedFileNodeID)
 
@@ -1343,6 +1413,228 @@ final class StudioAppState: ObservableObject {
         runOutputText = terminalService.output
     }
 
+    private func startRemoteSetup() {
+        guard activeRemoteTargetID != nil else {
+            return
+        }
+
+        cancelRemoteOperations()
+        remoteSetupState = .settingUp
+        remoteConnectionState = .disconnected
+        remoteSetupStepIndex = 0
+        setRemoteStatus(nil)
+
+        remoteSetupTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                let snapshot = try await self.remoteAccessService.performSetup(
+                    username: self.trimmedRemoteAccountUsername,
+                    hosts: self.remoteHosts
+                ) { stepIndex in
+                    Task { @MainActor [weak self] in
+                        self?.remoteSetupStepIndex = stepIndex
+                    }
+                }
+
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                await MainActor.run {
+                    self.remoteSetupState = snapshot.isConfigured ? .ready : .needsSetup
+                    self.applyRemoteEnvironment(snapshot)
+                    self.remoteSetupStepIndex = snapshot.isConfigured ? max(Self.remoteSetupBlueprint.count - 1, 0) : 0
+                }
+
+                if snapshot.isConfigured {
+                    await MainActor.run {
+                        self.startRemoteConnection()
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                await MainActor.run {
+                    self.remoteSetupState = .needsSetup
+                    self.remoteConnectionState = .disconnected
+                    self.remoteSetupStepIndex = 0
+                    self.setRemoteStatus(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func startRemoteConnection() {
+        guard let selectedRemoteHost, remoteSetupState == .ready else {
+            return
+        }
+
+        cancelRemoteConnection()
+        remoteConnectionState = .connecting
+        setRemoteStatus(nil)
+        remoteConnectionTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await self.remoteAccessService.connect(to: selectedRemoteHost)
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                await MainActor.run {
+                    self.remoteConnectionState = .connected
+                    self.setRemoteStatus(nil)
+                }
+            } catch {
+                guard !Task.isCancelled else {
+                    return
+                }
+
+                await MainActor.run {
+                    self.remoteConnectionState = .disconnected
+                    if let remoteAccessError = error as? RemoteAccessError,
+                       case .publicKeyInstallRequired = remoteAccessError {
+                        self.setRemoteStatus("Key login is not ready yet. Enter your La Salle password below and Studio will install the public key for you.")
+                        self.startRemotePublicKeyInstall()
+                    } else {
+                        self.setRemoteStatus(error.localizedDescription)
+                    }
+                }
+            }
+        }
+    }
+
+    private func cancelRemoteConnection() {
+        remoteConnectionTask?.cancel()
+        remoteConnectionTask = nil
+        remoteConnectionState = .disconnected
+    }
+
+    private func cancelRemoteOperations() {
+        remoteSetupTask?.cancel()
+        remoteSetupTask = nil
+        remoteRefreshTask?.cancel()
+        remoteRefreshTask = nil
+        remoteConnectionTask?.cancel()
+        remoteConnectionTask = nil
+        remoteInstallerTask?.cancel()
+        remoteInstallerTask = nil
+    }
+
+    private func refreshRemoteEnvironment() {
+        remoteRefreshTask?.cancel()
+        remoteRefreshTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            let snapshot = await self.remoteAccessService.inspectEnvironment(hosts: self.remoteHosts)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                self.applyRemoteEnvironment(snapshot)
+            }
+        }
+    }
+
+    private func applyRemoteEnvironment(_ snapshot: RemoteEnvironmentSnapshot) {
+        if trimmedRemoteAccountUsername.isEmpty,
+           let detectedUsername = snapshot.detectedUsername?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !detectedUsername.isEmpty {
+            remoteAccountUsername = detectedUsername
+        }
+
+        if remoteSetupState != .settingUp {
+            remoteSetupState = snapshot.isConfigured ? .ready : .needsSetup
+            remoteSetupStepIndex = snapshot.isConfigured ? max(Self.remoteSetupBlueprint.count - 1, 0) : 0
+        }
+
+        if !snapshot.isConfigured {
+            remoteConnectionState = .disconnected
+        }
+
+    }
+
+    private func setRemoteStatus(_ message: String?) {
+        let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        remoteStatusMessage = trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func startRemotePublicKeyInstall() {
+        guard let selectedRemoteHost else {
+            return
+        }
+
+        remoteInstallerTask?.cancel()
+        remoteInstallerOutput = ""
+        remoteInstallerInput = ""
+        remoteInstallerPrompt = nil
+        isRemoteInstallerVisible = true
+        isRemoteInstallerRunning = true
+
+        remoteInstallerTask = Task { [weak self] in
+            guard let self else {
+                return
+            }
+
+            do {
+                try await self.remoteAccessService.startPublicKeyInstall(to: selectedRemoteHost) { event in
+                    await MainActor.run {
+                        self.handleRemoteInstallerEvent(event)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.hideRemoteInstaller()
+                    self.setRemoteStatus(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func handleRemoteInstallerEvent(_ event: RemoteInstallerEvent) {
+        switch event {
+        case .output(let chunk):
+            if remoteInstallerOutput.isEmpty {
+                remoteInstallerOutput = chunk
+            } else {
+                remoteInstallerOutput += chunk
+            }
+        case .inputRequested(let prompt):
+            remoteInstallerPrompt = prompt
+        case .finished(let success, let message):
+            isRemoteInstallerRunning = false
+            remoteInstallerTask = nil
+            remoteInstallerPrompt = nil
+            if let message {
+                setRemoteStatus(message)
+            }
+
+            if success {
+                hideRemoteInstaller()
+                refreshRemoteEnvironment()
+                startRemoteConnection()
+            }
+        }
+    }
+
+    private func hideRemoteInstaller() {
+        remoteInstallerOutput = ""
+        remoteInstallerInput = ""
+        remoteInstallerPrompt = nil
+        isRemoteInstallerVisible = false
+        isRemoteInstallerRunning = false
+    }
+
 }
 
 private enum PersistedKey {
@@ -1364,31 +1656,21 @@ struct EditorFileTab: Identifiable, Equatable {
 }
 
 private extension StudioAppState {
-    static let remoteOnboardingBlueprint: [(id: String, title: String, detail: String)] = [
+    static let remoteSetupBlueprint: [(id: String, title: String, detail: String)] = [
         (
-            id: "detect",
-            title: "Detect existing SSH setup",
-            detail: "Check whether Studio can reuse an existing Salle alias or key on this Mac."
-        ),
-        (
-            id: "account",
-            title: "Confirm Salle account",
-            detail: "Verify the `name.lastname` username that matches the selected university server."
+            id: "permission",
+            title: "Use `~/.ssh`",
+            detail: "macOS asks for one-time access to your existing `~/.ssh` folder so Studio can reuse it."
         ),
         (
             id: "key",
-            title: "Create local key",
-            detail: "Generate or reuse the SSH keypair that Studio will use for remote access."
+            title: "Reuse or create SSH key",
+            detail: "Studio reuses your shared Salle key when it exists, or creates one automatically if it doesn't."
         ),
         (
-            id: "install",
-            title: "Install public key",
-            detail: "Copy the public key to the selected server so future logins can skip password prompts."
-        ),
-        (
-            id: "verify",
-            title: "Verify terminal alias",
-            detail: "Make sure commands like `ssh matagalls` resolve cleanly after setup."
+            id: "alias",
+            title: "Register terminal aliases",
+            detail: "Write the Montserrat, Matagalls, and Puigpedros aliases so the same setup works in Studio and Terminal."
         )
     ]
 
