@@ -7,8 +7,6 @@ struct EditorPaneView: View {
         VStack(spacing: 0) {
             if isShowingPolicyEditor {
                 policyHeader
-            } else if isShowingRemoteSetup {
-                remoteHeader
             } else {
                 editorHeader
             }
@@ -19,8 +17,6 @@ struct EditorPaneView: View {
 
                 if isShowingPolicyEditor {
                     PolicyManagerView(state: state)
-                } else if isShowingRemoteSetup {
-                    RemoteOnboardingView(state: state)
                 } else {
                     CodeTextView(text: state.editorText)
                 }
@@ -83,10 +79,6 @@ struct EditorPaneView: View {
         state.sidebarMode == .policies && state.hasWorkspace
     }
 
-    private var isShowingRemoteSetup: Bool {
-        state.sidebarMode == .remote
-    }
-
     private var policyHeader: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerSeparator
@@ -111,41 +103,6 @@ struct EditorPaneView: View {
                     Text("Policies")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(StudioTheme.textPrimary)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: StudioTheme.chromeRowHeight)
-
-            headerSeparator
-        }
-        .background(StudioTheme.editor)
-    }
-
-    private var remoteHeader: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            headerSeparator
-
-            HStack(spacing: 8) {
-                Image(systemName: "network")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(StudioTheme.textSecondary)
-
-                Text(state.selectedRemotePreset?.name ?? "Remote")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(StudioTheme.textPrimary)
-
-                if state.remoteConnectionState == .connected {
-                    Text("SSH Live")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(StudioTheme.textPrimary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule(style: .continuous)
-                                .fill(StudioTheme.accent.opacity(0.22))
-                        )
                 }
 
                 Spacer(minLength: 0)
