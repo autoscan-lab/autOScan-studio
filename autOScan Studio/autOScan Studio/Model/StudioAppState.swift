@@ -66,7 +66,6 @@ final class StudioAppState: ObservableObject {
             persistActivePolicySelection()
         }
     }
-    @Published var policyEditorText = ""
     @Published private(set) var selectedPolicyDraft: PolicyDraft?
     @Published var selectedPolicyTestCaseID: UUID?
     @Published private(set) var policyBanner: PolicyBanner?
@@ -357,7 +356,7 @@ final class StudioAppState: ObservableObject {
         }
 
         return latestRunReport.submissions.filter { submission in
-            !submission.compileOK || submission.bannedCount > 0
+            !submission.compileOk || submission.bannedCount > 0
         }
     }
 
@@ -417,7 +416,6 @@ final class StudioAppState: ObservableObject {
         clearPolicyBanner()
 
         guard let policy = selectedPolicy else {
-            policyEditorText = ""
             loadedPolicyText = ""
             loadedPolicyDraft = nil
             selectedPolicyDraft = nil
@@ -428,14 +426,12 @@ final class StudioAppState: ObservableObject {
         do {
             let text = try workspaceService.readPolicy(policy)
             loadedPolicyText = text
-            policyEditorText = text
             let draft = PolicyDraft.parse(text)
             loadedPolicyDraft = draft
             selectedPolicyDraft = draft
             selectedPolicyTestCaseID = draft.testCases.first?.id
         } catch {
             loadedPolicyText = ""
-            policyEditorText = ""
             loadedPolicyDraft = nil
             selectedPolicyDraft = nil
             selectedPolicyTestCaseID = nil
@@ -514,7 +510,6 @@ final class StudioAppState: ObservableObject {
         do {
             let serializedPolicy = selectedPolicyDraft.serializedYAML()
             try workspaceService.updatePolicy(policy, content: serializedPolicy)
-            policyEditorText = serializedPolicy
             reloadWorkspaceAndPolicies(preservePolicySelection: policy.id)
             selectPolicyForEditing(policyID: policy.id)
             policyBanner = PolicyBanner(
@@ -579,7 +574,6 @@ final class StudioAppState: ObservableObject {
                 content: serializedPolicy,
                 in: workspaceRootURL
             )
-            policyEditorText = serializedPolicy
             loadedPolicyText = serializedPolicy
             loadedPolicyDraft = draft
             reloadWorkspaceAndPolicies(preservePolicySelection: renamedPolicy.id)
@@ -1094,7 +1088,6 @@ final class StudioAppState: ObservableObject {
         guard let workspaceRootURL else {
             policies = []
             selectedPolicyID = nil
-            policyEditorText = ""
             selectedPolicyDraft = nil
             loadedPolicyDraft = nil
             selectedPolicyTestCaseID = nil
@@ -1112,7 +1105,6 @@ final class StudioAppState: ObservableObject {
             self.selectedPolicyID = nil
             loadedPolicyText = ""
             loadedPolicyDraft = nil
-            policyEditorText = ""
             selectedPolicyDraft = nil
             selectedPolicyTestCaseID = nil
         }
@@ -1281,16 +1273,16 @@ final class StudioAppState: ObservableObject {
             appendRunOutput("Discovered \(discovery.submissionCount) submission(s).")
         case .compileComplete(let compile):
             let status = compile.ok ? "ok" : (compile.timedOut ? "timed out" : "failed")
-            appendRunOutput("Compile \(compile.submissionID): \(status) (\(compile.durationMs) ms)")
+            appendRunOutput("Compile \(compile.submissionId): \(status) (\(compile.durationMs) ms)")
 
             if let stderr = compile.stderr?.trimmingCharacters(in: .whitespacesAndNewlines), !stderr.isEmpty {
                 appendRunOutput(stderr)
             }
         case .scanComplete(let scan):
-            appendRunOutput("Scan \(scan.submissionID): \(scan.bannedHits) banned hit(s)")
+            appendRunOutput("Scan \(scan.submissionId): \(scan.bannedHits) banned hit(s)")
 
-            if !scan.parseErrors.isEmpty {
-                appendRunOutput(scan.parseErrors.joined(separator: "\n"))
+            if let parseErrors = scan.parseErrors, !parseErrors.isEmpty {
+                appendRunOutput(parseErrors.joined(separator: "\n"))
             }
         case .runComplete(let report):
             latestRunReport = report

@@ -853,7 +853,6 @@ final class LocalWorkspaceService: WorkspaceService {
 }
 
 enum EngineClientError: Error {
-    case notImplemented(String)
     case bridgeNotFound
     case missingPolicyPath
     case invalidResponse(String)
@@ -864,10 +863,8 @@ enum EngineClientError: Error {
 extension EngineClientError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .notImplemented(let operation):
-            return "\(operation) isn't implemented yet."
         case .bridgeNotFound:
-            return "autOScan bridge wasn't found. Rebuild Studio so it bundles autoscan-bridge, or set AUTOSCAN_BRIDGE_PATH."
+            return "autOScan bridge wasn't found. Rebuild Studio to bundle it (requires Go and the Engine submodule)."
         case .missingPolicyPath:
             return "A policy file is required before running the engine."
         case .invalidResponse(let message):
@@ -898,22 +895,6 @@ struct RunSubmissionRequest: Sendable {
     var shortNames = false
 }
 
-struct ComputeSimilarityRequest: Sendable {
-    let workspacePath: String
-}
-
-struct ComputeAIDetectionRequest: Sendable {
-    let workspacePath: String
-}
-
-struct ExportReportRequest: Sendable {
-    let outputPath: String
-}
-
-struct EngineCommandResponse: Sendable {
-    let summary: String
-}
-
 struct EngineRunSummary: Sendable, Codable {
     let policyName: String
     let root: String
@@ -935,7 +916,7 @@ struct EngineRunSubmission: Sendable, Codable, Identifiable {
     let path: String
     let status: String
     let cFiles: [String]
-    let compileOK: Bool
+    let compileOk: Bool
     let compileTimeout: Bool
     let exitCode: Int
     let compileTimeMs: Int64
@@ -948,12 +929,19 @@ struct EngineRunReport: Sendable, Codable {
     let submissions: [EngineRunSubmission]
 }
 
+struct EngineDiscoverySubmission: Sendable, Codable {
+    let id: String
+    let path: String
+    let cFiles: [String]
+}
+
 struct EngineDiscovery: Sendable, Codable {
     let submissionCount: Int
+    let submissions: [EngineDiscoverySubmission]?
 }
 
 struct EngineCompileEvent: Sendable, Codable {
-    let submissionID: String
+    let submissionId: String
     let ok: Bool
     let exitCode: Int
     let timedOut: Bool
@@ -963,9 +951,9 @@ struct EngineCompileEvent: Sendable, Codable {
 }
 
 struct EngineScanEvent: Sendable, Codable {
-    let submissionID: String
+    let submissionId: String
     let bannedHits: Int
-    let parseErrors: [String]
+    let parseErrors: [String]?
 }
 
 enum EngineRunEvent: Sendable {
@@ -986,37 +974,6 @@ protocol EngineClient {
         request: RunSubmissionRequest,
         onEvent: @escaping @Sendable (EngineRunEvent) async -> Void
     ) async throws -> EngineRunReport
-    func computeSimilarity(request: ComputeSimilarityRequest) async throws -> EngineCommandResponse
-    func computeAIDetection(request: ComputeAIDetectionRequest) async throws -> EngineCommandResponse
-    func exportReport(request: ExportReportRequest) async throws -> EngineCommandResponse
-}
-
-final class PlaceholderEngineClient: EngineClient {
-    func runSession(
-        request: RunSessionRequest,
-        onEvent: @escaping @Sendable (EngineRunEvent) async -> Void
-    ) async throws -> EngineRunReport {
-        throw EngineClientError.notImplemented("runSession")
-    }
-
-    func runSubmission(
-        request: RunSubmissionRequest,
-        onEvent: @escaping @Sendable (EngineRunEvent) async -> Void
-    ) async throws -> EngineRunReport {
-        throw EngineClientError.notImplemented("runSubmission")
-    }
-
-    func computeSimilarity(request: ComputeSimilarityRequest) async throws -> EngineCommandResponse {
-        throw EngineClientError.notImplemented("computeSimilarity")
-    }
-
-    func computeAIDetection(request: ComputeAIDetectionRequest) async throws -> EngineCommandResponse {
-        throw EngineClientError.notImplemented("computeAIDetection")
-    }
-
-    func exportReport(request: ExportReportRequest) async throws -> EngineCommandResponse {
-        throw EngineClientError.notImplemented("exportReport")
-    }
 }
 
 final class BridgeEngineClient: EngineClient {
@@ -1061,18 +1018,6 @@ final class BridgeEngineClient: EngineClient {
         )
     }
 
-    func computeSimilarity(request: ComputeSimilarityRequest) async throws -> EngineCommandResponse {
-        throw EngineClientError.notImplemented("computeSimilarity")
-    }
-
-    func computeAIDetection(request: ComputeAIDetectionRequest) async throws -> EngineCommandResponse {
-        throw EngineClientError.notImplemented("computeAIDetection")
-    }
-
-    func exportReport(request: ExportReportRequest) async throws -> EngineCommandResponse {
-        throw EngineClientError.notImplemented("exportReport")
-    }
-
     private func runBridgeCommand(
         command: String,
         rootPath: String,
@@ -1112,6 +1057,7 @@ final class BridgeEngineClient: EngineClient {
         process.arguments = arguments
 
         let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
         let stdoutTask = Task { () throws -> EngineRunReport? in
             var finalReport: EngineRunReport?
 
@@ -1219,59 +1165,19 @@ final class BridgeEngineClient: EngineClient {
     }
 
     private func resolveBridgeExecutableURL() throws -> URL {
-        let fileManager = FileManager.default
-
-        let environment = ProcessInfo.processInfo.environment
-        if let overridePath = environment["AUTOSCAN_BRIDGE_PATH"],
-           fileManager.isExecutableFile(atPath: overridePath) {
-            return URL(fileURLWithPath: overridePath)
-        }
-
         if let bundledURL = Bundle.main.url(forAuxiliaryExecutable: "autoscan-bridge"),
-           fileManager.isExecutableFile(atPath: bundledURL.path) {
+           FileManager.default.isExecutableFile(atPath: bundledURL.path) {
             return bundledURL
         }
 
         if let executableDirectoryURL = Bundle.main.executableURL?.deletingLastPathComponent() {
-            let bundledExecutableURL = executableDirectoryURL.appendingPathComponent("autoscan-bridge")
-            if fileManager.isExecutableFile(atPath: bundledExecutableURL.path) {
-                return bundledExecutableURL
+            let bundledURL = executableDirectoryURL.appendingPathComponent("autoscan-bridge")
+            if FileManager.default.isExecutableFile(atPath: bundledURL.path) {
+                return bundledURL
             }
-        }
-
-        if let pathEnvironment = environment["PATH"] {
-            for directory in pathEnvironment.split(separator: ":") {
-                let candidate = URL(fileURLWithPath: String(directory))
-                    .appendingPathComponent("autoscan-bridge")
-                if fileManager.isExecutableFile(atPath: candidate.path) {
-                    return candidate
-                }
-            }
-        }
-
-        for candidate in developmentBridgeCandidates() where fileManager.isExecutableFile(atPath: candidate.path) {
-            return candidate
         }
 
         throw EngineClientError.bridgeNotFound
-    }
-
-    private func developmentBridgeCandidates() -> [URL] {
-        let sourceFileURL = URL(fileURLWithPath: #filePath)
-        let workspaceRoot = sourceFileURL
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-
-        return [
-            workspaceRoot.appendingPathComponent("autOScan-engine/dist/autoscan-bridge"),
-            workspaceRoot.appendingPathComponent("autOScan-engine/autoscan-bridge"),
-            URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-                .appendingPathComponent("../autOScan-engine/dist/autoscan-bridge")
-                .standardizedFileURL
-        ]
     }
 }
 

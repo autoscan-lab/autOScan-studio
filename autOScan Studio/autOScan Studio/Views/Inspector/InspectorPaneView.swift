@@ -146,9 +146,9 @@ struct InspectorPaneView: View {
                     .width(min: 120, ideal: 180)
 
                     TableColumn("Compile") { submission in
-                        Text(submission.compileOK ? "OK" : "Fail")
+                        Text(submission.compileOk ? "OK" : "Fail")
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(submission.compileOK ? .green : .red)
+                            .foregroundStyle(submission.compileOk ? .green : .red)
                     }
                     .width(min: 54, ideal: 60)
 
@@ -277,8 +277,8 @@ struct InspectorPaneView: View {
 
     private func orderedSubmissions(_ report: EngineRunReport) -> [EngineRunSubmission] {
         report.submissions.sorted { lhs, rhs in
-            let lhsHasIssues = !lhs.compileOK || lhs.bannedCount > 0
-            let rhsHasIssues = !rhs.compileOK || rhs.bannedCount > 0
+            let lhsHasIssues = !lhs.compileOk || lhs.bannedCount > 0
+            let rhsHasIssues = !rhs.compileOk || rhs.bannedCount > 0
 
             if lhsHasIssues != rhsHasIssues {
                 return lhsHasIssues && !rhsHasIssues
