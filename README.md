@@ -1,4 +1,4 @@
-# autOScan Studio
+<h1 align="center">autOScan Studio</h1>
 
 <p align="center">
   <strong>macOS grading workbench for C lab submissions</strong>
