@@ -1,12 +1,18 @@
 # autOScan Studio
 
-**macOS grading workbench for C lab submissions**
+<p align="center">
+  <strong>macOS grading workbench for C lab submissions</strong>
+</p>
 
-[![Swift Badge](https://img.shields.io/badge/swift-6.0+-F05138?style=flat&logo=swift&logoColor=white)](#)
-[![Platform Badge](https://img.shields.io/badge/platform-macOS-000000?style=flat&logo=apple&logoColor=white)](#)
-[![Engine Badge](https://img.shields.io/badge/engine-autOScan--engine-1f6feb?style=flat)](#)
+<p align="center">
+  <a href="#"><img src="https://img.shields.io/badge/swift-6.0+-F05138?style=flat&logo=swift&logoColor=white"></a>
+  <a href="#"><img src="https://img.shields.io/badge/platform-macOS-000000?style=flat&logo=apple&logoColor=white"></a>
+  <a href="#"><img src="https://img.shields.io/badge/engine-autOScan--engine-1f6feb?style=flat"></a>
+</p>
 
-Native macOS app powered by `autOScan-engine`
+<p align="center">
+  Native macOS app powered by <code>autOScan-engine</code>
+</p>
 
 ---
 
