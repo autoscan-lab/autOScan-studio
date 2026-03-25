@@ -1,0 +1,54 @@
+{
+  "name": "autoscan-studio",
+  "version": "1.0.0",
+  "description": "A macOS grading workbench for teaching assistants",
+  "main": "./out/main/index.js",
+  "packageManager": "pnpm@10.32.1",
+  "config": {
+    "engineTag": "v1.1.1"
+  },
+  "scripts": {
+    "setup:engine": "sh -c '[ -x \"Engine/autoscan-bridge\" ] || { mkdir -p Engine && curl -fL --retry 3 --retry-delay 2 -o Engine/autoscan-bridge \"https://github.com/autoscan-lab/autOScan-engine/releases/download/$npm_package_config_engineTag/autoscan-bridge\" && chmod 755 Engine/autoscan-bridge; }'",
+    "dev": "pnpm run setup:engine && electron-vite dev",
+    "build": "pnpm run setup:engine && electron-vite build",
+    "preview": "electron-vite preview",
+    "package": "pnpm run build && electron-builder"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "^3.0.0",
+    "@monaco-editor/react": "^4.7.0",
+    "electron-store": "^10.0.1",
+    "monaco-editor": "^0.52.2",
+    "react": "^19.1.0",
+    "react-arborist": "^3.4.0",
+    "react-dom": "^19.1.0",
+    "react-resizable-panels": "^2.1.7",
+    "yaml": "^2.7.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "electron": "^35.1.2",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "tailwindcss": "^4.1.4",
+    "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "com.autoscan.studio",
+    "productName": "autOScan Studio",
+    "mac": {
+      "target": "dmg"
+    },
+    "extraResources": [
+      {
+        "from": "Engine/autoscan-bridge",
+        "to": "autoscan-bridge"
+      }
+    ]
+  }
+}

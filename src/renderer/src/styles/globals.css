@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #1F2126;
+  --color-sidebar: #17191D;
+  --color-editor: #22252C;
+  --color-pane: #1C1F25;
+  --color-separator: #323743;
+  --color-text-primary: #F2F4F8;
+  --color-text-secondary: #929AAC;
+  --color-selection: rgba(110, 120, 144, 0.42);
+  --color-hover: #2A2E37;
+  --color-accent: #007AFF;
+  --color-accent-hover: #0069D9;
+  --color-banner-success: #2D6A3F;
+  --color-banner-error: #8B2E2E;
+  --color-banner-info: #2E5C8B;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--color-canvas);
+  color: var(--color-text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* Titlebar drag region */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

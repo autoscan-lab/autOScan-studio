@@ -1,20 +1,22 @@
 # macOS
 .DS_Store
 
-# Xcode
-DerivedData/
-**/*.xcworkspace/xcuserdata/
-**/*.xcodeproj/xcuserdata/
-**/*.xcodeproj/project.xcworkspace/xcuserdata/
-*.xcuserstate
-
-# SwiftPM
-.build/
-.swiftpm/
-
 # Editors
 .vscode/
 .idea/
+
+# Node / Electron
+node_modules/
+out/
+dist/
+.pnpm-store/
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Engine
 Engine/
