@@ -1,55 +1,66 @@
 @import "tailwindcss";
 
 @theme {
-  --color-canvas: #1F2126;
-  --color-sidebar: #17191D;
-  --color-editor: #22252C;
-  --color-pane: #1C1F25;
-  --color-separator: #323743;
-  --color-text-primary: #F2F4F8;
-  --color-text-secondary: #929AAC;
-  --color-selection: rgba(110, 120, 144, 0.42);
-  --color-hover: #2A2E37;
-  --color-accent: #007AFF;
-  --color-accent-hover: #0069D9;
-  --color-banner-success: #2D6A3F;
-  --color-banner-error: #8B2E2E;
-  --color-banner-info: #2E5C8B;
+    --color-canvas: #0d1117;
+    --color-sidebar: #010409;
+    --color-editor: #0d1117;
+    --color-pane: #010409;
+    --color-separator: #3d444d;
+    --color-text-primary: #f0f6fc;
+    --color-text-secondary: #9198a1;
+    --color-selection: #656c7633;
+    --color-hover: #656c7633;
+    --color-accent: #4493f8;
+    --color-accent-hover: #1f6feb;
+    --color-banner-success: #2ea043;
+    --color-banner-error: #f85149;
+    --color-banner-info: #d29922;
 }
 
-html, body, #root {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  overflow: hidden;
-  background-color: var(--color-canvas);
-  color: var(--color-text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
-  font-size: 13px;
-  -webkit-font-smoothing: antialiased;
-  user-select: none;
+:root {
+    --titlebar-height: 44px;
+    --traffic-lights-offset: 82px;
+    --app-icon-size: 15px;
+    --app-icon-size-lg: 17px;
+}
+
+html,
+body,
+#root {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background-color: #0d1117;
+    color: #f0f6fc;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+        sans-serif;
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
 }
 
 /* Titlebar drag region */
 .titlebar-drag {
-  -webkit-app-region: drag;
+    -webkit-app-region: drag;
 }
 .titlebar-no-drag {
-  -webkit-app-region: no-drag;
+    -webkit-app-region: no-drag;
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+    width: 8px;
+    height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+    background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
+    background: #656c764d;
+    border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+    background: #656c7666;
 }

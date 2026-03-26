@@ -12,7 +12,7 @@ function createWindow(): void {
     minWidth: 900,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
-    backgroundColor: '#1F2126',
+    backgroundColor: '#0d1117',
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -83,7 +83,7 @@ function buildMenu(): void {
       submenu: [
         {
           label: 'Toggle Sidebar',
-          accelerator: 'CmdOrCtrl+1',
+          accelerator: 'CmdOrCtrl+B',
           click: () => mainWindow?.webContents.send('menu:toggle-sidebar')
         },
         {

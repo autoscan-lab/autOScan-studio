@@ -9,7 +9,7 @@ function getBridgePath(): string {
   if (app.isPackaged) {
     return join(process.resourcesPath, "autoscan-bridge");
   }
-  return join(__dirname, "../../../Engine/autoscan-bridge");
+  return join(__dirname, "../../Engine/autoscan-bridge");
 }
 
 export function registerEngineHandlers(): void {
