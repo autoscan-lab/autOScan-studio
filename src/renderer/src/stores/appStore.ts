@@ -38,6 +38,8 @@ export interface DiffTabPayload {
   state: "unavailable" | "ready";
   expectedOutput: string | null;
   actualOutput: string | null;
+  stdout: string | null;
+  stderr: string | null;
   diffLines: DiffLine[] | null;
   message?: string;
 }
@@ -937,6 +939,7 @@ export const useAppStore = create<AppState>((set, get) => {
         isRunInProgress: true,
         latestRunError: null,
         runStatusMessage: `Running ${testCaseName}…`,
+        runOutputText: `Running test "${testCaseName}" for ${submissionID}\n`,
         isOutputVisible: true,
         activeTestRunContext: {
           mode: "single",
@@ -987,6 +990,7 @@ export const useAppStore = create<AppState>((set, get) => {
         isRunInProgress: true,
         latestRunError: null,
         runStatusMessage: "Running all tests…",
+        runOutputText: `Running all tests for ${submissionID}\n`,
         isOutputVisible: true,
         activeTestRunContext: {
           mode: "all",
@@ -1024,6 +1028,13 @@ export const useAppStore = create<AppState>((set, get) => {
           break;
 
         case "discovery_complete": {
+          if (get().activeTestRunContext) {
+            set({
+              runStatusMessage: "Preparing test execution…",
+            });
+            break;
+          }
+
           const discoveredCount = event.discovery?.submission_count;
           set((state) => ({
             runOutputText:
@@ -1231,6 +1242,17 @@ export const useAppStore = create<AppState>((set, get) => {
             context.singleTestCaseID === testCaseID;
 
           if (shouldAutoOpenDiff) {
+            const latestRunReport = get().latestRunReport;
+            const submissionLabel = displayName(
+              latestRunReport?.submissions.find(
+                (submission) => submission.id === payload.submission_id,
+              )?.submissionPath ?? payload.submission_id,
+            );
+            const testCaseLabel =
+              get().activePolicyTestCases.find((testCase) => testCase.id === testCaseID)
+                ?.name ||
+              payload.test_case_name ||
+              "Untitled test";
             const hasDiffPayload =
               payload.expected_output !== undefined ||
               payload.actual_output !== undefined ||
@@ -1240,13 +1262,15 @@ export const useAppStore = create<AppState>((set, get) => {
 
             get().openOrFocusAnalysisTab({
               kind: "diff",
-              title: `Diff · ${payload.submission_id} · ${payload.test_case_name || "Test"}`,
+              title: `Diff · ${submissionLabel} · ${testCaseLabel}`,
               payload: {
                 submissionID: payload.submission_id,
                 testCaseID,
                 state: hasDiffPayload ? "ready" : "unavailable",
                 expectedOutput: payload.expected_output ?? null,
                 actualOutput: payload.actual_output ?? payload.stdout ?? null,
+                stdout: payload.stdout ?? null,
+                stderr: payload.stderr ?? null,
                 diffLines,
                 message:
                   payload.message ??

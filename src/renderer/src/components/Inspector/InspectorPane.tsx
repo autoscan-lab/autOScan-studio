@@ -7,6 +7,7 @@ import {
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
+import { Lock } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import type { InspectorDetailTab } from "../../stores/appStore";
 import type { SubmissionResult } from "../../types/engine";
@@ -43,12 +44,15 @@ export function InspectorPane() {
   const testsSummaryBySubmission = useAppStore(
     (state) => state.testsSummaryBySubmission,
   );
+  const activeTestRunContext = useAppStore((state) => state.activeTestRunContext);
 
   const [sorting, setSorting] = useState<SortingState>([
     { id: "submissionPath", desc: false },
   ]);
 
   const activePolicy = policies.find((policy) => policy.id === activePolicyID);
+  const isWorkspaceRunInProgress =
+    isRunInProgress && activeTestRunContext === null;
   const selectedSubmission =
     report?.submissions.find((submission) => submission.id === selectedSubmissionID) ??
     null;
@@ -135,6 +139,8 @@ export function InspectorPane() {
         state: hasDiffPayload ? "ready" : "unavailable",
         expectedOutput: latestResult?.expectedOutput ?? null,
         actualOutput: latestResult?.actualOutput ?? null,
+        stdout: latestResult?.stdout ?? null,
+        stderr: latestResult?.stderr ?? null,
         diffLines: latestResult?.diffLines ?? null,
         message:
           latestResult?.message ??
@@ -184,7 +190,7 @@ export function InspectorPane() {
             }
           `}
         >
-          {isRunInProgress ? "Running…" : "Run Workspace"}
+          {isWorkspaceRunInProgress ? "Running…" : "Run Workspace"}
         </button>
       </div>
 
@@ -435,28 +441,35 @@ export function InspectorPane() {
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() =>
-                          void runSubmissionAllTests(selectedSubmission.id)
-                        }
-                        disabled={
-                          isRunInProgress || !engineCapabilities.runAllPolicyTests
+                        onClick={() => {
+                          if (!engineCapabilities.runAllPolicyTests || isRunInProgress) {
+                            return;
+                          }
+                          void runSubmissionAllTests(selectedSubmission.id);
+                        }}
+                        disabled={isRunInProgress}
+                        title={
+                          engineCapabilities.runAllPolicyTests
+                            ? undefined
+                            : "Requires bridge support for policy test execution."
                         }
                         className={`
-                          rounded px-2 py-1 text-[11px] font-semibold cursor-default
+                          group relative rounded px-2 py-1 pr-7 text-[11px] font-semibold
                           ${
-                            isRunInProgress || !engineCapabilities.runAllPolicyTests
+                            isRunInProgress
                               ? "bg-hover text-text-secondary"
                               : "bg-accent text-white hover:bg-accent-hover"
                           }
+                          ${!engineCapabilities.runAllPolicyTests ? "cursor-not-allowed" : "cursor-default"}
                         `}
                       >
                         Run All Tests
+                        {!engineCapabilities.runAllPolicyTests && (
+                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
+                            <Lock size={12} />
+                          </span>
+                        )}
                       </button>
-                      {!engineCapabilities.runAllPolicyTests && (
-                        <span className="text-[10px] text-text-secondary">
-                          Requires bridge support for policy test execution.
-                        </span>
-                      )}
                     </div>
                     {selectedSubmission &&
                       testsSummaryBySubmission[selectedSubmission.id] && (
@@ -478,36 +491,48 @@ export function InspectorPane() {
                       </p>
                     ) : (
                       <div className="space-y-2">
-                        {activePolicyTestCases.map((testCase) => (
-                          <section
-                            key={testCase.id}
-                            className="rounded-md border border-separator/60 bg-canvas/40 p-3"
-                          >
-                            {selectedSubmission &&
-                              (() => {
-                                const result =
-                                  testCaseResultsBySubmission[selectedSubmission.id]?.[
-                                    testCase.id
-                                  ] ?? null;
-                                const statusTone = statusToneClass(result?.status ?? "idle");
-                                const statusLabel = result?.status
-                                  ? result.status.replace(/_/g, " ")
-                                  : "idle";
+                        {activePolicyTestCases.map((testCase) => {
+                          const result = selectedSubmission
+                            ? testCaseResultsBySubmission[selectedSubmission.id]?.[
+                                testCase.id
+                              ] ?? null
+                            : null;
+                          const isSingleRunForThisCase =
+                            isRunInProgress &&
+                            activeTestRunContext?.mode === "single" &&
+                            activeTestRunContext.submissionID === selectedSubmission?.id &&
+                            activeTestRunContext.singleTestCaseID === testCase.id;
+                          const isAllRunForThisCase =
+                            isRunInProgress &&
+                            activeTestRunContext?.mode === "all" &&
+                            activeTestRunContext.submissionID === selectedSubmission?.id &&
+                            result?.status === "running";
+                          const isThisTestRunning =
+                            isSingleRunForThisCase || isAllRunForThisCase;
+                          const effectiveStatus = isThisTestRunning
+                            ? "running"
+                            : (result?.status ?? "idle");
+                          const statusTone = statusToneClass(effectiveStatus);
+                          const statusLabel = effectiveStatus.replace(/_/g, " ");
 
-                                return (
-                                  <div className="mb-2 flex items-center justify-between text-[10px]">
-                                    <span className={`uppercase tracking-wider ${statusTone}`}>
-                                      {statusLabel}
-                                    </span>
-                                    {result?.durationMs !== null &&
-                                      result?.durationMs !== undefined && (
-                                        <span className="text-text-secondary">
-                                          {result.durationMs}ms
-                                        </span>
-                                      )}
-                                  </div>
-                                );
-                              })()}
+                          return (
+                            <section
+                              key={testCase.id}
+                              className="rounded-md border border-separator/60 bg-canvas/40 p-3"
+                            >
+                              {selectedSubmission && (
+                                <div className="mb-2 flex items-center justify-between text-[10px]">
+                                  <span className={`uppercase tracking-wider ${statusTone}`}>
+                                    {statusLabel}
+                                  </span>
+                                  {result?.durationMs !== null &&
+                                    result?.durationMs !== undefined && (
+                                      <span className="text-text-secondary">
+                                        {result.durationMs}ms
+                                      </span>
+                                    )}
+                                </div>
+                              )}
                             <div className="flex items-center gap-2">
                               <span className="text-[12px] font-medium text-text-primary truncate">
                                 {testCase.name || "Untitled test"}
@@ -543,10 +568,7 @@ export function InspectorPane() {
                                     }
                                   `}
                                 >
-                                  {selectedSubmission &&
-                                  testCaseResultsBySubmission[selectedSubmission.id]?.[
-                                    testCase.id
-                                  ]?.status === "running"
+                                  {isThisTestRunning
                                     ? "Running…"
                                     : "Run Test"}
                                 </button>
@@ -560,31 +582,24 @@ export function InspectorPane() {
                                 expected exit: {testCase.expectedExit || "(unspecified)"}
                               </p>
                               {selectedSubmission &&
-                                (() => {
-                                  const result =
-                                    testCaseResultsBySubmission[selectedSubmission.id]?.[
-                                      testCase.id
-                                    ] ?? null;
-                                  if (!result) return null;
-
-                                  return (
-                                    <>
-                                      <p>
-                                        exit:{" "}
-                                        {result.exitCode === null
-                                          ? "(n/a)"
-                                          : String(result.exitCode)}
-                                      </p>
-                                      {result.outputMatch && (
-                                        <p>output match: {result.outputMatch}</p>
-                                      )}
-                                      {result.message && <p>{result.message}</p>}
-                                    </>
-                                  );
-                                })()}
+                                result && (
+                                  <>
+                                    <p>
+                                      exit:{" "}
+                                      {result.exitCode === null
+                                        ? "(n/a)"
+                                        : String(result.exitCode)}
+                                    </p>
+                                    {result.outputMatch && (
+                                      <p>output match: {result.outputMatch}</p>
+                                    )}
+                                    {result.message && <p>{result.message}</p>}
+                                  </>
+                                )}
                             </div>
-                          </section>
-                        ))}
+                            </section>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
