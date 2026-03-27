@@ -50,24 +50,60 @@ function DiffPane({ tab }: { tab: DiffMainPaneTab }) {
       )}
 
       {tab.payload.state === "ready" && (
-        <section className="grid grid-cols-2 gap-3">
-          <div className="rounded-md border border-separator/60 bg-canvas/40 p-3">
+        <>
+          <section className="grid grid-cols-2 gap-3">
+            <div className="rounded-md border border-separator/60 bg-canvas/40 p-3">
+              <p className="text-[11px] text-text-secondary uppercase tracking-wider mb-2">
+                Expected Output
+              </p>
+              <pre className="text-[12px] text-text-primary whitespace-pre-wrap font-mono">
+                {tab.payload.expectedOutput ?? "(empty)"}
+              </pre>
+            </div>
+            <div className="rounded-md border border-separator/60 bg-canvas/40 p-3">
+              <p className="text-[11px] text-text-secondary uppercase tracking-wider mb-2">
+                Actual Output
+              </p>
+              <pre className="text-[12px] text-text-primary whitespace-pre-wrap font-mono">
+                {tab.payload.actualOutput ?? "(empty)"}
+              </pre>
+            </div>
+          </section>
+
+          <section className="rounded-md border border-separator/60 bg-canvas/40 p-3">
             <p className="text-[11px] text-text-secondary uppercase tracking-wider mb-2">
-              Expected Output
+              Line Diff
             </p>
-            <pre className="text-[12px] text-text-primary whitespace-pre-wrap font-mono">
-              {tab.payload.expectedOutput ?? "(empty)"}
-            </pre>
-          </div>
-          <div className="rounded-md border border-separator/60 bg-canvas/40 p-3">
-            <p className="text-[11px] text-text-secondary uppercase tracking-wider mb-2">
-              Actual Output
-            </p>
-            <pre className="text-[12px] text-text-primary whitespace-pre-wrap font-mono">
-              {tab.payload.actualOutput ?? "(empty)"}
-            </pre>
-          </div>
-        </section>
+            {tab.payload.diffLines && tab.payload.diffLines.length > 0 ? (
+              <div className="space-y-1">
+                {tab.payload.diffLines.map((line, index) => (
+                  <pre
+                    key={`${line.type}-${line.line ?? index}-${index}`}
+                    className={`text-[11px] whitespace-pre-wrap font-mono ${
+                      line.type === "added"
+                        ? "text-green-300"
+                        : line.type === "removed"
+                          ? "text-red-300"
+                          : "text-text-secondary"
+                    }`}
+                  >
+                    {line.type === "added"
+                      ? "+ "
+                      : line.type === "removed"
+                        ? "- "
+                        : "  "}
+                    {line.line ? `${line.line}: ` : ""}
+                    {line.content}
+                  </pre>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-text-secondary">
+                No line-level diff available.
+              </p>
+            )}
+          </section>
+        </>
       )}
     </div>
   );

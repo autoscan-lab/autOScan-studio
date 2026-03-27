@@ -44,14 +44,37 @@ export const api = {
   runSession: (
     workspacePath: string,
     policyPath: string,
-    submissionPath?: string,
   ) =>
     ipcRenderer.invoke(
       "engine:run-session",
       workspacePath,
       policyPath,
-      submissionPath,
     ),
+  runTestCase: (
+    workspacePath: string,
+    policyPath: string,
+    submissionID: string,
+    testCaseIndex: number,
+  ) =>
+    ipcRenderer.invoke(
+      "engine:run-test-case",
+      workspacePath,
+      policyPath,
+      submissionID,
+      testCaseIndex,
+    ),
+  runAllTests: (
+    workspacePath: string,
+    policyPath: string,
+    submissionID: string,
+  ) =>
+    ipcRenderer.invoke(
+      "engine:run-all-tests",
+      workspacePath,
+      policyPath,
+      submissionID,
+    ),
+  getEngineCapabilities: () => ipcRenderer.invoke("engine:get-capabilities"),
   cancelRun: () => ipcRenderer.invoke("engine:cancel"),
   onEngineEvent: (callback: (event: unknown) => void) => {
     const handler = (_: unknown, event: unknown) => callback(event);

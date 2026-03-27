@@ -5,10 +5,10 @@
   "main": "./out/main/index.js",
   "packageManager": "pnpm@10.32.1",
   "config": {
-    "engineTag": "v1.1.1"
+    "engineTag": "v1.2.0"
   },
   "scripts": {
-    "setup:engine": "sh -c '[ -x \"Engine/autoscan-bridge\" ] || { mkdir -p Engine && curl -fL --retry 3 --retry-delay 2 -o Engine/autoscan-bridge \"https://github.com/autoscan-lab/autOScan-engine/releases/download/$npm_package_config_engineTag/autoscan-bridge\" && chmod 755 Engine/autoscan-bridge; }'",
+    "setup:engine": "sh -c 'set -e; mkdir -p Engine; curl -fL --retry 3 --retry-delay 2 -o Engine/autoscan-bridge \"https://github.com/autoscan-lab/autOScan-engine/releases/download/$npm_package_config_engineTag/autoscan-bridge\"; chmod 755 Engine/autoscan-bridge'",
     "dev": "pnpm run setup:engine && electron-vite dev",
     "build": "pnpm run setup:engine && electron-vite build",
     "preview": "electron-vite preview",

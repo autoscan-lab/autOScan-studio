@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { WorkspaceNode, WorkspaceSnapshot } from "../types/workspace";
 import type { PolicyFile, PolicyDraft, TestCase } from "../types/policy";
 import type {
+  BridgeCapabilities,
   EngineRunReport,
   EngineRunEvent,
   SubmissionResult,
@@ -42,14 +43,12 @@ export interface DiffTabPayload {
 }
 
 export interface SimilarityTabPayload {
-  state: "placeholder" | "ready";
   leftSubmissionID: string | null;
   rightSubmissionID: string | null;
   context: string;
 }
 
 export interface AITabPayload {
-  state: "placeholder" | "ready";
   submissionID: string | null;
   context: string;
 }
@@ -110,9 +109,50 @@ export type AnalysisTabInput =
     };
 
 export interface EngineCapabilities {
-  submissionRun: boolean;
   testCaseRun: boolean;
   runAllPolicyTests: boolean;
+}
+
+export type SubmissionTestCaseStatus =
+  | "idle"
+  | "running"
+  | "pass"
+  | "fail"
+  | "timeout"
+  | "compile_failed"
+  | "error";
+
+export interface SubmissionTestCaseResult {
+  submissionID: string;
+  testCaseID: string;
+  testCaseIndex: number;
+  testCaseName: string;
+  status: SubmissionTestCaseStatus;
+  exitCode: number | null;
+  durationMs: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  outputMatch: "none" | "pass" | "fail" | "missing" | null;
+  expectedOutput: string | null;
+  actualOutput: string | null;
+  diffLines: DiffLine[] | null;
+  message: string | null;
+}
+
+export interface SubmissionTestsSummary {
+  submissionID: string;
+  total: number;
+  passed: number;
+  failed: number;
+  compileFailed: number;
+  missingExpectedOutput: number;
+}
+
+interface ActiveTestRunContext {
+  mode: "single" | "all";
+  submissionID: string;
+  singleTestCaseID: string | null;
+  testCaseIDsByIndex: string[];
 }
 
 interface AppState {
@@ -164,8 +204,15 @@ interface AppState {
 
   // Capability flags
   engineCapabilities: EngineCapabilities;
+  testCaseResultsBySubmission: Record<
+    string,
+    Record<string, SubmissionTestCaseResult>
+  >;
+  testsSummaryBySubmission: Record<string, SubmissionTestsSummary>;
+  activeTestRunContext: ActiveTestRunContext | null;
 
   // Actions
+  loadEngineCapabilities: () => Promise<void>;
   setSidebarMode: (mode: SidebarMode) => void;
   toggleSidebar: () => void;
   toggleInspector: () => void;
@@ -194,7 +241,6 @@ interface AppState {
   deletePolicy: (policyID: string) => Promise<void>;
   setActivePolicy: (policyID: string | null) => Promise<void>;
   runWorkspaceSession: () => Promise<void>;
-  runSubmission: (submissionPath: string) => Promise<void>;
   runSubmissionTestCase: (
     submissionID: string,
     testCaseID: string,
@@ -254,6 +300,26 @@ function getSelectedSubmission(
 ): SubmissionResult | null {
   if (!report || !submissionID) return null;
   return report.submissions.find((submission) => submission.id === submissionID) ?? null;
+}
+
+function mapCapabilities(value: BridgeCapabilities): EngineCapabilities {
+  return {
+    testCaseRun: Boolean(value.run_test_case),
+    runAllPolicyTests: Boolean(value.run_all_policy_tests),
+  };
+}
+
+function resolveTestCaseIDByIndex(
+  context: ActiveTestRunContext | null,
+  index: number,
+  activePolicyTestCases: TestCase[],
+): string | null {
+  if (index < 0) return null;
+
+  const fromContext = context?.testCaseIDsByIndex[index] ?? null;
+  if (fromContext) return fromContext;
+
+  return activePolicyTestCases[index]?.id ?? null;
 }
 
 export const useAppStore = create<AppState>((set, get) => {
@@ -316,12 +382,28 @@ export const useAppStore = create<AppState>((set, get) => {
     selectedSubmissionID: null,
     inspectorDetailTab: "overview",
     engineCapabilities: {
-      submissionRun: true,
       testCaseRun: false,
       runAllPolicyTests: false,
     },
+    testCaseResultsBySubmission: {},
+    testsSummaryBySubmission: {},
+    activeTestRunContext: null,
 
     // Actions
+    loadEngineCapabilities: async () => {
+      try {
+        const capabilities = (await window.api.getEngineCapabilities()) as BridgeCapabilities;
+        set({ engineCapabilities: mapCapabilities(capabilities) });
+      } catch {
+        set({
+          engineCapabilities: {
+            testCaseRun: false,
+            runAllPolicyTests: false,
+          },
+        });
+      }
+    },
+
     setSidebarMode: (mode) => {
       set({ sidebarMode: mode });
       get().persist();
@@ -403,6 +485,7 @@ export const useAppStore = create<AppState>((set, get) => {
       }
 
       await get().setActivePolicy(get().activePolicyID);
+      await get().loadEngineCapabilities();
 
       window.api.storeSet("workspacePath", rootPath);
       get().persist();
@@ -819,13 +902,82 @@ export const useAppStore = create<AppState>((set, get) => {
         inspectorViewMode: "table",
         selectedSubmissionID: null,
         inspectorDetailTab: "overview",
+        activeTestRunContext: null,
+        testCaseResultsBySubmission: {},
+        testsSummaryBySubmission: {},
       });
 
       await window.api.runSession(workspaceRootPath, policy.path);
     },
 
-    runSubmission: async (submissionPath) => {
-      const { workspaceRootPath, activePolicyID, policies } = get();
+    runSubmissionTestCase: async (submissionID, testCaseID) => {
+      const state = get();
+      const { workspaceRootPath, activePolicyID, policies, activePolicyTestCases } = state;
+      if (!workspaceRootPath || !activePolicyID) return;
+
+      const policy = policies.find((item) => item.id === activePolicyID);
+      if (!policy) return;
+
+      const testCaseIndex = activePolicyTestCases.findIndex(
+        (testCase) => testCase.id === testCaseID,
+      );
+      if (testCaseIndex < 0) {
+        set((current) => ({
+          runOutputText:
+            current.runOutputText +
+            `[Engine] Unknown test case ${testCaseID} for active policy.\n`,
+        }));
+        return;
+      }
+
+      const testCase = activePolicyTestCases[testCaseIndex];
+      const testCaseName = testCase.name || "Untitled test";
+
+      set((current) => ({
+        isRunInProgress: true,
+        latestRunError: null,
+        runStatusMessage: `Running ${testCaseName}…`,
+        isOutputVisible: true,
+        activeTestRunContext: {
+          mode: "single",
+          submissionID,
+          singleTestCaseID: testCaseID,
+          testCaseIDsByIndex: activePolicyTestCases.map((tc) => tc.id),
+        },
+        testCaseResultsBySubmission: {
+          ...current.testCaseResultsBySubmission,
+          [submissionID]: {
+            ...(current.testCaseResultsBySubmission[submissionID] ?? {}),
+            [testCaseID]: {
+              submissionID,
+              testCaseID,
+              testCaseIndex,
+              testCaseName,
+              status: "running",
+              exitCode: null,
+              durationMs: null,
+              stdout: null,
+              stderr: null,
+              outputMatch: null,
+              expectedOutput: null,
+              actualOutput: null,
+              diffLines: null,
+              message: null,
+            },
+          },
+        },
+      }));
+
+      await window.api.runTestCase(
+        workspaceRootPath,
+        policy.path,
+        submissionID,
+        testCaseIndex,
+      );
+    },
+
+    runSubmissionAllTests: async (submissionID) => {
+      const { workspaceRootPath, activePolicyID, policies, activePolicyTestCases } = get();
       if (!workspaceRootPath || !activePolicyID) return;
 
       const policy = policies.find((item) => item.id === activePolicyID);
@@ -833,45 +985,27 @@ export const useAppStore = create<AppState>((set, get) => {
 
       set({
         isRunInProgress: true,
-        runOutputText: "",
-        runStatusMessage: "Running submission…",
-        latestRunReport: null,
         latestRunError: null,
+        runStatusMessage: "Running all tests…",
         isOutputVisible: true,
-        inspectorViewMode: "table",
-        selectedSubmissionID: null,
-        inspectorDetailTab: "overview",
+        activeTestRunContext: {
+          mode: "all",
+          submissionID,
+          singleTestCaseID: null,
+          testCaseIDsByIndex: activePolicyTestCases.map((tc) => tc.id),
+        },
       });
 
-      await window.api.runSession(workspaceRootPath, policy.path, submissionPath);
-    },
-
-    runSubmissionTestCase: async (submissionID, testCaseID) => {
-      const testCase = get().activePolicyTestCases.find((item) => item.id === testCaseID);
-      const label = testCase?.name || testCaseID;
-
-      set((state) => ({
-        isOutputVisible: true,
-        runStatusMessage: "Test execution unavailable",
-        runOutputText:
-          state.runOutputText +
-          `[Bridge missing capability] Cannot run test case \"${label}\" for submission ${submissionID}.\n`,
-      }));
-    },
-
-    runSubmissionAllTests: async (submissionID) => {
-      set((state) => ({
-        isOutputVisible: true,
-        runStatusMessage: "Test execution unavailable",
-        runOutputText:
-          state.runOutputText +
-          `[Bridge missing capability] Cannot run all policy tests for submission ${submissionID}.\n`,
-      }));
+      await window.api.runAllTests(workspaceRootPath, policy.path, submissionID);
     },
 
     cancelRun: async () => {
       await window.api.cancelRun();
-      set({ isRunInProgress: false, runStatusMessage: "Cancelled" });
+      set({
+        isRunInProgress: false,
+        runStatusMessage: "Cancelled",
+        activeTestRunContext: null,
+      });
     },
 
     clearOutput: () => {
@@ -884,6 +1018,9 @@ export const useAppStore = create<AppState>((set, get) => {
           set({
             runStatusMessage: event.message || "Starting run…",
           });
+          break;
+
+        case "version":
           break;
 
         case "discovery_complete": {
@@ -989,6 +1126,162 @@ export const useAppStore = create<AppState>((set, get) => {
           break;
         }
 
+        case "test_case_started": {
+          const payload = event.test_case_started;
+          const context = get().activeTestRunContext;
+          const testCaseID =
+            resolveTestCaseIDByIndex(
+              context,
+              payload.test_case_index,
+              get().activePolicyTestCases,
+            ) ?? `index:${payload.test_case_index}`;
+
+          set((state) => ({
+            runStatusMessage: `Running ${payload.test_case_name || "test"}…`,
+            testCaseResultsBySubmission: {
+              ...state.testCaseResultsBySubmission,
+              [payload.submission_id]: {
+                ...(state.testCaseResultsBySubmission[payload.submission_id] ?? {}),
+                [testCaseID]: {
+                  submissionID: payload.submission_id,
+                  testCaseID,
+                  testCaseIndex: payload.test_case_index,
+                  testCaseName: payload.test_case_name || "Untitled test",
+                  status: "running",
+                  exitCode: null,
+                  durationMs: null,
+                  stdout: null,
+                  stderr: null,
+                  outputMatch: null,
+                  expectedOutput: null,
+                  actualOutput: null,
+                  diffLines: null,
+                  message: null,
+                },
+              },
+            },
+          }));
+          break;
+        }
+
+        case "test_case_complete": {
+          const payload = event.test_case;
+          const context = get().activeTestRunContext;
+          const testCaseID =
+            resolveTestCaseIDByIndex(
+              context,
+              payload.test_case_index,
+              get().activePolicyTestCases,
+            ) ?? `index:${payload.test_case_index}`;
+
+          const mappedStatus: SubmissionTestCaseStatus =
+            payload.status === "running" ||
+            payload.status === "pass" ||
+            payload.status === "fail" ||
+            payload.status === "timeout" ||
+            payload.status === "compile_failed" ||
+            payload.status === "error"
+              ? payload.status
+              : "error";
+
+          const diffLines =
+            payload.diff_lines?.map((line) => ({
+              type: line.type,
+              content: line.content,
+              line: line.line_num,
+            })) ?? null;
+
+          const outputMatch =
+            payload.output_match === "none" ||
+            payload.output_match === "pass" ||
+            payload.output_match === "fail" ||
+            payload.output_match === "missing"
+              ? payload.output_match
+              : null;
+
+          set((state) => ({
+            runStatusMessage: `${payload.test_case_name || "Test"} ${mappedStatus}`,
+            testCaseResultsBySubmission: {
+              ...state.testCaseResultsBySubmission,
+              [payload.submission_id]: {
+                ...(state.testCaseResultsBySubmission[payload.submission_id] ?? {}),
+                [testCaseID]: {
+                  submissionID: payload.submission_id,
+                  testCaseID,
+                  testCaseIndex: payload.test_case_index,
+                  testCaseName: payload.test_case_name || "Untitled test",
+                  status: mappedStatus,
+                  exitCode: payload.exit_code,
+                  durationMs: payload.duration_ms,
+                  stdout: payload.stdout ?? null,
+                  stderr: payload.stderr ?? null,
+                  outputMatch,
+                  expectedOutput: payload.expected_output ?? null,
+                  actualOutput: payload.actual_output ?? null,
+                  diffLines,
+                  message: payload.message ?? null,
+                },
+              },
+            },
+          }));
+
+          const shouldAutoOpenDiff =
+            context?.mode === "single" &&
+            context.submissionID === payload.submission_id &&
+            context.singleTestCaseID === testCaseID;
+
+          if (shouldAutoOpenDiff) {
+            const hasDiffPayload =
+              payload.expected_output !== undefined ||
+              payload.actual_output !== undefined ||
+              (payload.diff_lines?.length ?? 0) > 0 ||
+              payload.output_match === "pass" ||
+              payload.output_match === "fail";
+
+            get().openOrFocusAnalysisTab({
+              kind: "diff",
+              title: `Diff · ${payload.submission_id} · ${payload.test_case_name || "Test"}`,
+              payload: {
+                submissionID: payload.submission_id,
+                testCaseID,
+                state: hasDiffPayload ? "ready" : "unavailable",
+                expectedOutput: payload.expected_output ?? null,
+                actualOutput: payload.actual_output ?? payload.stdout ?? null,
+                diffLines,
+                message:
+                  payload.message ??
+                  (payload.output_match === "none"
+                    ? "This test case has no expected output file configured."
+                    : payload.output_match === "missing"
+                      ? "Expected output file was not found for this test case."
+                      : hasDiffPayload
+                        ? undefined
+                        : "Diff payload was not provided by the bridge."),
+              },
+            });
+          }
+          break;
+        }
+
+        case "tests_complete": {
+          const payload = event.tests_complete;
+          set((state) => ({
+            runStatusMessage: `Tests done · ${payload.passed} pass · ${payload.failed} fail`,
+            testsSummaryBySubmission: {
+              ...state.testsSummaryBySubmission,
+              [payload.submission_id]: {
+                submissionID: payload.submission_id,
+                total: payload.total,
+                passed: payload.passed,
+                failed: payload.failed,
+                compileFailed: payload.compile_failed,
+                missingExpectedOutput: payload.missing_expected_output,
+              },
+            },
+          }));
+          break;
+        }
+
         case "error":
           set({
             latestRunError: event.message,
@@ -1005,10 +1298,10 @@ export const useAppStore = create<AppState>((set, get) => {
     setRunDone: (code) => {
       set((state) => ({
         isRunInProgress: false,
-        runStatusMessage: state.latestRunReport
-          ? state.runStatusMessage
-          : code === 0
-            ? "Done"
+        activeTestRunContext: null,
+        runStatusMessage:
+          code === 0
+            ? state.runStatusMessage || "Done"
             : `Engine exited with code ${code}`,
       }));
     },
@@ -1048,6 +1341,8 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     restoreSession: async () => {
+      await get().loadEngineCapabilities();
+
       const workspacePath = (await window.api.storeGet("workspacePath")) as
         | string
         | null;

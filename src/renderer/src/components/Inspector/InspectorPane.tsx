@@ -37,6 +37,12 @@ export function InspectorPane() {
   const activePolicyTestCases = useAppStore((state) => state.activePolicyTestCases);
   const engineCapabilities = useAppStore((state) => state.engineCapabilities);
   const openOrFocusAnalysisTab = useAppStore((state) => state.openOrFocusAnalysisTab);
+  const testCaseResultsBySubmission = useAppStore(
+    (state) => state.testCaseResultsBySubmission,
+  );
+  const testsSummaryBySubmission = useAppStore(
+    (state) => state.testsSummaryBySubmission,
+  );
 
   const [sorting, setSorting] = useState<SortingState>([
     { id: "submissionPath", desc: false },
@@ -110,18 +116,29 @@ export function InspectorPane() {
   const openDiffTab = (testCaseID: string, testCaseName: string) => {
     if (!selectedSubmission) return;
 
+    const latestResult =
+      testCaseResultsBySubmission[selectedSubmission.id]?.[testCaseID] ?? null;
+    const hasDiffPayload =
+      latestResult !== null &&
+      (latestResult.expectedOutput !== null ||
+        latestResult.actualOutput !== null ||
+        (latestResult.diffLines?.length ?? 0) > 0 ||
+        latestResult.outputMatch === "pass" ||
+        latestResult.outputMatch === "fail");
+
     openOrFocusAnalysisTab({
       kind: "diff",
       title: `Diff · ${fileName(selectedSubmission.submissionPath)} · ${testCaseName}`,
       payload: {
         submissionID: selectedSubmission.id,
         testCaseID,
-        state: "unavailable",
-        expectedOutput: null,
-        actualOutput: null,
-        diffLines: null,
+        state: hasDiffPayload ? "ready" : "unavailable",
+        expectedOutput: latestResult?.expectedOutput ?? null,
+        actualOutput: latestResult?.actualOutput ?? null,
+        diffLines: latestResult?.diffLines ?? null,
         message:
-          "Diff payload is not available yet. Per-test execution and diff events will be connected when bridge support lands.",
+          latestResult?.message ??
+          "Run this test to populate expected vs actual output and diff lines.",
       },
     });
   };
@@ -441,6 +458,19 @@ export function InspectorPane() {
                         </span>
                       )}
                     </div>
+                    {selectedSubmission &&
+                      testsSummaryBySubmission[selectedSubmission.id] && (
+                        <p className="text-[10px] text-text-secondary">
+                          Last run:{" "}
+                          {testsSummaryBySubmission[selectedSubmission.id].passed} pass,{" "}
+                          {testsSummaryBySubmission[selectedSubmission.id].failed} fail,{" "}
+                          {
+                            testsSummaryBySubmission[selectedSubmission.id]
+                              .compileFailed
+                          }{" "}
+                          compile failed
+                        </p>
+                      )}
 
                     {activePolicyTestCases.length === 0 ? (
                       <p className="text-[11px] text-text-secondary">
@@ -453,6 +483,31 @@ export function InspectorPane() {
                             key={testCase.id}
                             className="rounded-md border border-separator/60 bg-canvas/40 p-3"
                           >
+                            {selectedSubmission &&
+                              (() => {
+                                const result =
+                                  testCaseResultsBySubmission[selectedSubmission.id]?.[
+                                    testCase.id
+                                  ] ?? null;
+                                const statusTone = statusToneClass(result?.status ?? "idle");
+                                const statusLabel = result?.status
+                                  ? result.status.replace(/_/g, " ")
+                                  : "idle";
+
+                                return (
+                                  <div className="mb-2 flex items-center justify-between text-[10px]">
+                                    <span className={`uppercase tracking-wider ${statusTone}`}>
+                                      {statusLabel}
+                                    </span>
+                                    {result?.durationMs !== null &&
+                                      result?.durationMs !== undefined && (
+                                        <span className="text-text-secondary">
+                                          {result.durationMs}ms
+                                        </span>
+                                      )}
+                                  </div>
+                                );
+                              })()}
                             <div className="flex items-center gap-2">
                               <span className="text-[12px] font-medium text-text-primary truncate">
                                 {testCase.name || "Untitled test"}
@@ -488,7 +543,12 @@ export function InspectorPane() {
                                     }
                                   `}
                                 >
-                                  Run Test
+                                  {selectedSubmission &&
+                                  testCaseResultsBySubmission[selectedSubmission.id]?.[
+                                    testCase.id
+                                  ]?.status === "running"
+                                    ? "Running…"
+                                    : "Run Test"}
                                 </button>
                               </div>
                             </div>
@@ -499,6 +559,29 @@ export function InspectorPane() {
                               <p>
                                 expected exit: {testCase.expectedExit || "(unspecified)"}
                               </p>
+                              {selectedSubmission &&
+                                (() => {
+                                  const result =
+                                    testCaseResultsBySubmission[selectedSubmission.id]?.[
+                                      testCase.id
+                                    ] ?? null;
+                                  if (!result) return null;
+
+                                  return (
+                                    <>
+                                      <p>
+                                        exit:{" "}
+                                        {result.exitCode === null
+                                          ? "(n/a)"
+                                          : String(result.exitCode)}
+                                      </p>
+                                      {result.outputMatch && (
+                                        <p>output match: {result.outputMatch}</p>
+                                      )}
+                                      {result.message && <p>{result.message}</p>}
+                                    </>
+                                  );
+                                })()}
                             </div>
                           </section>
                         ))}
@@ -556,4 +639,14 @@ function fileName(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const segments = normalized.split("/");
   return segments[segments.length - 1] || path;
+}
+
+function statusToneClass(status: string): string {
+  if (status === "pass") return "text-green-400";
+  if (status === "timeout") return "text-yellow-400";
+  if (status === "running") return "text-accent";
+  if (status === "compile_failed" || status === "fail" || status === "error") {
+    return "text-red-400";
+  }
+  return "text-text-secondary";
 }

@@ -25,6 +25,58 @@ export interface BridgeScanPayload {
   parse_errors?: string[];
 }
 
+export interface BridgeDiffLinePayload {
+  type: "same" | "added" | "removed";
+  content: string;
+  line_num?: number;
+}
+
+export type BridgeTestCaseStatus =
+  | "running"
+  | "pass"
+  | "fail"
+  | "timeout"
+  | "compile_failed"
+  | "error";
+
+export interface BridgeTestCaseStartedPayload {
+  submission_id: string;
+  test_case_index: number;
+  test_case_name: string;
+}
+
+export interface BridgeTestCaseCompletePayload {
+  submission_id: string;
+  test_case_index: number;
+  test_case_name: string;
+  status: BridgeTestCaseStatus;
+  exit_code: number;
+  duration_ms: number;
+  stdout?: string;
+  stderr?: string;
+  output_match?: "none" | "pass" | "fail" | "missing";
+  expected_output?: string;
+  actual_output?: string;
+  diff_lines?: BridgeDiffLinePayload[];
+  message?: string;
+}
+
+export interface BridgeTestsCompletePayload {
+  submission_id: string;
+  total: number;
+  passed: number;
+  failed: number;
+  compile_failed: number;
+  missing_expected_output: number;
+}
+
+export interface BridgeCapabilities {
+  run_session: boolean;
+  run_test_case: boolean;
+  run_all_policy_tests: boolean;
+  diff_payload: boolean;
+}
+
 export interface BridgeRunSummary {
   policy_name: string;
   root: string;
@@ -126,6 +178,7 @@ export interface EngineRunReport {
 
 export type EngineRunEvent =
   | { type: "started"; message: string }
+  | { type: "version"; version?: string; message?: string }
   | {
       type: "discovery_complete";
       discovery: BridgeDiscoveryPayload;
@@ -141,5 +194,17 @@ export type EngineRunEvent =
   | {
       type: "run_complete";
       run: BridgeRunPayload;
+    }
+  | {
+      type: "test_case_started";
+      test_case_started: BridgeTestCaseStartedPayload;
+    }
+  | {
+      type: "test_case_complete";
+      test_case: BridgeTestCaseCompletePayload;
+    }
+  | {
+      type: "tests_complete";
+      tests_complete: BridgeTestsCompletePayload;
     }
   | { type: "error"; message: string };
