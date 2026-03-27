@@ -1,51 +1,81 @@
 import {
+  useActiveMainPaneTab,
   useAppStore,
-  useOpenFileTabs,
   useSelectedPolicyDisplayName,
 } from "../../stores/appStore";
 import { MdClose, MdDescription } from "react-icons/md";
 
 import { CodeViewer } from "./CodeViewer";
 import { PolicyEditor } from "./PolicyEditor";
+import { AnalysisPane } from "./AnalysisPane";
 
 export function EditorPane() {
-  const sidebarMode = useAppStore((s) => s.sidebarMode);
-  const hasWorkspace = useAppStore((s) => s.workspaceRootPath !== null);
+  const sidebarMode = useAppStore((state) => state.sidebarMode);
+  const hasWorkspace = useAppStore((state) => state.workspaceRootPath !== null);
+  const activeMainPaneTab = useActiveMainPaneTab();
 
-  const isShowingPolicyEditor = sidebarMode === "policies" && hasWorkspace;
+  const isShowingAnalysis =
+    activeMainPaneTab !== null && activeMainPaneTab.kind !== "file";
+  const isShowingPolicyEditor =
+    sidebarMode === "policies" && hasWorkspace && !isShowingAnalysis;
+
+  if (isShowingPolicyEditor) {
+    return (
+      <div className="flex flex-col h-full bg-editor">
+        <PolicyHeader />
+        <div className="flex-1 min-h-0">
+          <PolicyEditor />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-editor">
-      {isShowingPolicyEditor ? <PolicyHeader /> : <EditorHeader />}
+      <MainPaneHeader />
       <div className="flex-1 min-h-0">
-        {isShowingPolicyEditor ? <PolicyEditor /> : <CodeViewer />}
+        {!activeMainPaneTab ? (
+          <NoTabOpen />
+        ) : activeMainPaneTab.kind === "file" ? (
+          <CodeViewer />
+        ) : (
+          <AnalysisPane tab={activeMainPaneTab} />
+        )}
       </div>
     </div>
   );
 }
 
-function EditorHeader() {
-  const tabs = useOpenFileTabs();
-  const selectedID = useAppStore((s) => s.selectedFileNodeID);
-  const selectFile = useAppStore((s) => s.selectFile);
-  const closeTab = useAppStore((s) => s.closeTab);
+function MainPaneHeader() {
+  const tabs = useAppStore((state) => state.mainPaneTabs);
+  const activeTabID = useAppStore((state) => state.activeMainPaneTabID);
+  const setActiveMainPaneTab = useAppStore((state) => state.setActiveMainPaneTab);
+  const closeMainPaneTab = useAppStore((state) => state.closeMainPaneTab);
 
   return (
     <div className="border-b border-separator bg-editor">
       <div className="flex h-10 items-stretch overflow-x-auto">
         {tabs.length === 0 ? (
           <span className="flex items-center px-4 text-[12px] text-text-primary">
-            No file open
+            No view open
           </span>
         ) : (
           <div className="flex h-full items-stretch border-l border-separator">
             {tabs.map((tab) => {
-              const isActive = tab.id === selectedID;
+              const isActive = tab.id === activeTabID;
+              const typeLabel =
+                tab.kind === "file"
+                  ? "FILE"
+                  : tab.kind === "diff"
+                    ? "DIFF"
+                    : tab.kind === "similarity"
+                      ? "SIM"
+                      : "AI";
 
               return (
                 <button
                   key={tab.id}
-                  onClick={() => selectFile(tab.id)}
+                  onClick={() => void setActiveMainPaneTab(tab.id)}
                   className={`
                     flex h-full min-w-0 items-center gap-2 border-r border-separator px-3.5 cursor-default text-[12px] font-medium
                     ${
@@ -55,11 +85,14 @@ function EditorHeader() {
                     }
                   `}
                 >
-                  <span className="max-w-40 truncate">{tab.title}</span>
+                  <span className="text-[9px] text-text-secondary font-semibold tracking-wide shrink-0">
+                    {typeLabel}
+                  </span>
+                  <span className="max-w-44 truncate">{tab.title}</span>
                   <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      closeTab(tab.id);
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void closeMainPaneTab(tab.id);
                     }}
                     className="ml-1 shrink-0 text-text-secondary hover:text-text-primary"
                   >
@@ -75,9 +108,19 @@ function EditorHeader() {
   );
 }
 
+function NoTabOpen() {
+  return (
+    <div className="flex items-center justify-center h-full">
+      <p className="text-sm text-text-secondary/70">
+        Open a file or analysis view to begin.
+      </p>
+    </div>
+  );
+}
+
 function PolicyHeader() {
   const policyName = useSelectedPolicyDisplayName();
-  const isPolicyDirty = useAppStore((s) => s.isPolicyDirty);
+  const isPolicyDirty = useAppStore((state) => state.isPolicyDirty);
 
   return (
     <div className="border-b border-separator bg-editor">

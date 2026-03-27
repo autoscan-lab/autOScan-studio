@@ -1,7 +1,11 @@
 import { useAppStore, useHasWorkspace } from "../stores/appStore";
 import { PanelBottom, PanelRight } from "lucide-react";
 
-export function Toolbar() {
+export function Toolbar({
+  isWindowFullscreen,
+}: {
+  isWindowFullscreen: boolean;
+}) {
   const toolbarTitle = useAppStore((s) => s.toolbarTitle);
   const isInspectorVisible = useAppStore((s) => s.isInspectorVisible);
   const isOutputVisible = useAppStore((s) => s.isOutputVisible);
@@ -12,7 +16,7 @@ export function Toolbar() {
 
   return (
     <div className="titlebar-drag flex items-center h-11 bg-pane border-b border-separator shrink-0">
-      <div className="w-[76px] shrink-0" />
+      <div className={`shrink-0 transition-[width] duration-150 ${isWindowFullscreen ? "w-0" : "w-[76px]"}`} />
 
       <div className="flex-1 min-w-0 pl-0.5">
         <button

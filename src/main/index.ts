@@ -24,6 +24,14 @@ function createWindow(): void {
     mainWindow?.show()
   })
 
+  const emitFullscreenChanged = (): void => {
+    mainWindow?.webContents.send('window:fullscreen-changed', mainWindow.isFullScreen())
+  }
+
+  mainWindow.on('enter-full-screen', emitFullscreenChanged)
+  mainWindow.on('leave-full-screen', emitFullscreenChanged)
+  mainWindow.webContents.on('did-finish-load', emitFullscreenChanged)
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }

@@ -80,6 +80,12 @@ export const api = {
     ipcRenderer.on(channel, handler);
     return () => ipcRenderer.removeListener(channel, handler);
   },
+
+  onWindowFullscreenChanged: (callback: (isFullscreen: boolean) => void) => {
+    const handler = (_: unknown, isFullscreen: boolean) => callback(isFullscreen);
+    ipcRenderer.on("window:fullscreen-changed", handler);
+    return () => ipcRenderer.removeListener("window:fullscreen-changed", handler);
+  },
 };
 
 export type ElectronAPI = typeof api;

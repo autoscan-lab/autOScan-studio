@@ -36,6 +36,7 @@ export default function App() {
   const [rightSidebarWidth, setRightSidebarWidth] = useState(
     RIGHT_SIDEBAR_DEFAULT_WIDTH,
   );
+  const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
 
   useEffect(() => {
     restoreSession();
@@ -51,6 +52,9 @@ export default function App() {
       window.api.onEngineEvent((event) => handleEngineEvent(event as any)),
       window.api.onEngineOutput((text) => appendOutput(text)),
       window.api.onEngineDone((code) => setRunDone(code)),
+      window.api.onWindowFullscreenChanged((isFullscreen) =>
+        setIsWindowFullscreen(isFullscreen),
+      ),
     ];
     return () => unsubs.forEach((fn) => fn());
   }, [
@@ -151,7 +155,7 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen">
-      <Toolbar />
+      <Toolbar isWindowFullscreen={isWindowFullscreen} />
 
       <div ref={appBodyRef} className="flex flex-1 min-h-0 min-w-0">
         {isSidebarVisible && (

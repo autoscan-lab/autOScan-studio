@@ -8,24 +8,44 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import { useAppStore } from "../../stores/appStore";
+import type { InspectorDetailTab } from "../../stores/appStore";
 import type { SubmissionResult } from "../../types/engine";
 
 const columnHelper = createColumnHelper<SubmissionResult>();
+const DETAIL_TABS: { id: InspectorDetailTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "banned", label: "Banned" },
+  { id: "tests", label: "Tests" },
+];
 
 export function InspectorPane() {
-  const report = useAppStore((s) => s.latestRunReport);
-  const policies = useAppStore((s) => s.policies);
-  const activePolicyID = useAppStore((s) => s.activePolicyID);
-  const setActivePolicy = useAppStore((s) => s.setActivePolicy);
-  const runWorkspaceSession = useAppStore((s) => s.runWorkspaceSession);
-  const isRunInProgress = useAppStore((s) => s.isRunInProgress);
-  const latestRunError = useAppStore((s) => s.latestRunError);
+  const report = useAppStore((state) => state.latestRunReport);
+  const policies = useAppStore((state) => state.policies);
+  const activePolicyID = useAppStore((state) => state.activePolicyID);
+  const setActivePolicy = useAppStore((state) => state.setActivePolicy);
+  const runWorkspaceSession = useAppStore((state) => state.runWorkspaceSession);
+  const runSubmissionTestCase = useAppStore((state) => state.runSubmissionTestCase);
+  const runSubmissionAllTests = useAppStore((state) => state.runSubmissionAllTests);
+  const isRunInProgress = useAppStore((state) => state.isRunInProgress);
+  const latestRunError = useAppStore((state) => state.latestRunError);
+  const inspectorViewMode = useAppStore((state) => state.inspectorViewMode);
+  const selectedSubmissionID = useAppStore((state) => state.selectedSubmissionID);
+  const inspectorDetailTab = useAppStore((state) => state.inspectorDetailTab);
+  const openSubmissionDetail = useAppStore((state) => state.openSubmissionDetail);
+  const closeSubmissionDetail = useAppStore((state) => state.closeSubmissionDetail);
+  const setInspectorDetailTab = useAppStore((state) => state.setInspectorDetailTab);
+  const activePolicyTestCases = useAppStore((state) => state.activePolicyTestCases);
+  const engineCapabilities = useAppStore((state) => state.engineCapabilities);
+  const openOrFocusAnalysisTab = useAppStore((state) => state.openOrFocusAnalysisTab);
 
   const [sorting, setSorting] = useState<SortingState>([
     { id: "submissionPath", desc: false },
   ]);
 
-  const activePolicy = policies.find((p) => p.id === activePolicyID);
+  const activePolicy = policies.find((policy) => policy.id === activePolicyID);
+  const selectedSubmission =
+    report?.submissions.find((submission) => submission.id === selectedSubmissionID) ??
+    null;
 
   const columns = useMemo(
     () => [
@@ -34,7 +54,7 @@ export function InspectorPane() {
         header: "Submission",
         cell: (info) => {
           const fullPath = info.getValue();
-          const name = fullPath.split("/").pop() || fullPath;
+          const name = fileName(fullPath);
           return (
             <span className="block truncate text-text-primary" title={fullPath}>
               {name}
@@ -87,6 +107,25 @@ export function InspectorPane() {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  const openDiffTab = (testCaseID: string, testCaseName: string) => {
+    if (!selectedSubmission) return;
+
+    openOrFocusAnalysisTab({
+      kind: "diff",
+      title: `Diff · ${fileName(selectedSubmission.submissionPath)} · ${testCaseName}`,
+      payload: {
+        submissionID: selectedSubmission.id,
+        testCaseID,
+        state: "unavailable",
+        expectedOutput: null,
+        actualOutput: null,
+        diffLines: null,
+        message:
+          "Diff payload is not available yet. Per-test execution and diff events will be connected when bridge support lands.",
+      },
+    });
+  };
+
   return (
     <div className="flex flex-col h-full bg-pane">
       <div className="border-b border-separator shrink-0">
@@ -105,19 +144,19 @@ export function InspectorPane() {
           </span>
           <select
             value={activePolicyID ?? ""}
-            onChange={(e) => setActivePolicy(e.target.value || null)}
+            onChange={(event) => void setActivePolicy(event.target.value || null)}
             className="ml-auto bg-canvas border border-separator rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none"
           >
-            {policies.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
+            {policies.map((policy) => (
+              <option key={policy.id} value={policy.id}>
+                {policy.name}
               </option>
             ))}
           </select>
         </div>
 
         <button
-          onClick={runWorkspaceSession}
+          onClick={() => void runWorkspaceSession()}
           disabled={isRunInProgress || !activePolicyID}
           className={`
             w-full py-1.5 rounded-md text-[12px] font-semibold cursor-default
@@ -171,7 +210,7 @@ export function InspectorPane() {
         </div>
       )}
 
-      {report && table.getRowModel().rows.length > 0 && (
+      {report && table.getRowModel().rows.length > 0 && inspectorViewMode === "table" && (
         <div className="flex-1 overflow-auto">
           <table className="w-full text-[11px]">
             <thead className="sticky top-0 bg-pane z-10">
@@ -214,7 +253,8 @@ export function InspectorPane() {
               {table.getRowModel().rows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-separator/30 hover:bg-hover/50"
+                  onClick={() => openSubmissionDetail(row.original.id)}
+                  className="border-b border-separator/30 hover:bg-hover/50 cursor-pointer"
                 >
                   {row.getVisibleCells().map((cell) => (
                     <td key={cell.id} className="px-2 py-1.5 align-middle">
@@ -231,6 +271,248 @@ export function InspectorPane() {
         </div>
       )}
 
+      {inspectorViewMode === "detail" && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-separator/50 shrink-0">
+            <button
+              onClick={closeSubmissionDetail}
+              aria-label="Back to submissions table"
+              title="Back"
+              className="text-[11px] text-accent hover:text-accent-hover"
+            >
+              ←
+            </button>
+            <span className="ml-1 text-[11px] font-semibold text-text-primary truncate">
+              {selectedSubmission
+                ? fileName(selectedSubmission.submissionPath)
+                : "Submission details"}
+            </span>
+          </div>
+
+          {!selectedSubmission ? (
+            <div className="flex-1 flex items-center justify-center px-3">
+              <p className="text-[11px] text-text-secondary">
+                Submission is no longer available in the latest report.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex h-9 items-stretch border-b border-separator/50 shrink-0">
+                {DETAIL_TABS.map((tab, index) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setInspectorDetailTab(tab.id)}
+                    className={`
+                      flex-1 min-w-0 h-full px-2 text-[10px] font-semibold cursor-default
+                      ${index < DETAIL_TABS.length - 1 ? "border-r border-separator/60" : ""}
+                      ${
+                        inspectorDetailTab === tab.id
+                          ? "bg-hover text-text-primary"
+                          : "bg-pane text-text-primary hover:bg-hover/80"
+                      }
+                    `}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-auto p-3">
+                {inspectorDetailTab === "overview" && (
+                  <div className="space-y-3">
+                    <section className="rounded-md border border-separator/60 bg-canvas/30">
+                      <div className="flex items-center justify-between border-b border-separator/50 px-3 py-2">
+                        <span className="text-[10px] uppercase tracking-wider text-text-secondary">
+                          Compile Summary
+                        </span>
+                        <span
+                          className={`text-[10px] font-semibold uppercase tracking-wider ${
+                            selectedSubmission.compileStatus === "pass"
+                              ? "text-green-400"
+                              : selectedSubmission.compileStatus === "timeout"
+                                ? "text-yellow-400"
+                                : "text-red-400"
+                          }`}
+                        >
+                          {selectedSubmission.compileStatus}
+                        </span>
+                      </div>
+
+                      <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-2 px-3 py-2.5 text-[12px]">
+                        <dt className="text-text-secondary">Time</dt>
+                        <dd className="text-text-primary">
+                          {selectedSubmission.compileTimeMs}ms
+                        </dd>
+
+                        <dt className="text-text-secondary">Exit Code</dt>
+                        <dd className="text-text-primary">
+                          {selectedSubmission.exitCode === null
+                            ? "N/A"
+                            : String(selectedSubmission.exitCode)}
+                        </dd>
+
+                        <dt className="text-text-secondary">Banned Hits</dt>
+                        <dd
+                          className={
+                            selectedSubmission.bannedHitCount > 0
+                              ? "text-orange-400"
+                              : "text-text-primary"
+                          }
+                        >
+                          {selectedSubmission.bannedHitCount}
+                        </dd>
+                      </dl>
+                    </section>
+
+                    <section className="rounded-md border border-separator/60 bg-canvas/30">
+                      <div className="border-b border-separator/50 px-3 py-2">
+                        <span className="text-[10px] uppercase tracking-wider text-text-secondary">
+                          Compile
+                        </span>
+                      </div>
+                      <div className="px-3 py-2.5">
+                        <pre className="text-[11px] text-text-primary whitespace-pre-wrap font-mono">
+                          {selectedSubmission.stderr || "No compile output."}
+                        </pre>
+                      </div>
+                    </section>
+
+                    <div>
+                      <p className="text-[10px] text-text-secondary uppercase tracking-wider">
+                        C Files
+                      </p>
+                      {selectedSubmission.cFiles.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {selectedSubmission.cFiles.map((cFile) => (
+                            <span
+                              key={cFile}
+                              className="rounded-sm border border-separator/60 bg-hover/40 px-2 py-0.5 text-[10px] font-mono text-text-primary"
+                            >
+                              {cFile}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-[11px] text-text-secondary">
+                          No C files detected.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {inspectorDetailTab === "banned" && (
+                  <div className="space-y-3">
+                    <Info
+                      label="Banned hits"
+                      value={String(selectedSubmission.bannedHitCount)}
+                    />
+                    <p className="text-[11px] text-text-secondary">
+                      Per-hit snippets and line details will appear here when the
+                      bridge report includes full banned hit payloads.
+                    </p>
+                  </div>
+                )}
+
+                {inspectorDetailTab === "tests" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          void runSubmissionAllTests(selectedSubmission.id)
+                        }
+                        disabled={
+                          isRunInProgress || !engineCapabilities.runAllPolicyTests
+                        }
+                        className={`
+                          rounded px-2 py-1 text-[11px] font-semibold cursor-default
+                          ${
+                            isRunInProgress || !engineCapabilities.runAllPolicyTests
+                              ? "bg-hover text-text-secondary"
+                              : "bg-accent text-white hover:bg-accent-hover"
+                          }
+                        `}
+                      >
+                        Run All Tests
+                      </button>
+                      {!engineCapabilities.runAllPolicyTests && (
+                        <span className="text-[10px] text-text-secondary">
+                          Requires bridge support for policy test execution.
+                        </span>
+                      )}
+                    </div>
+
+                    {activePolicyTestCases.length === 0 ? (
+                      <p className="text-[11px] text-text-secondary">
+                        No test cases found in the active policy.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {activePolicyTestCases.map((testCase) => (
+                          <section
+                            key={testCase.id}
+                            className="rounded-md border border-separator/60 bg-canvas/40 p-3"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="text-[12px] font-medium text-text-primary truncate">
+                                {testCase.name || "Untitled test"}
+                              </span>
+                              <div className="ml-auto flex items-center gap-1.5">
+                                <button
+                                  onClick={() =>
+                                    openDiffTab(
+                                      testCase.id,
+                                      testCase.name || "Untitled test",
+                                    )
+                                  }
+                                  className="rounded px-2 py-1 text-[10px] bg-hover text-text-primary hover:bg-hover/80"
+                                >
+                                  View Diff
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    void runSubmissionTestCase(
+                                      selectedSubmission.id,
+                                      testCase.id,
+                                    )
+                                  }
+                                  disabled={
+                                    isRunInProgress || !engineCapabilities.testCaseRun
+                                  }
+                                  className={`
+                                    rounded px-2 py-1 text-[10px] cursor-default
+                                    ${
+                                      isRunInProgress || !engineCapabilities.testCaseRun
+                                        ? "bg-hover text-text-secondary"
+                                        : "bg-accent text-white hover:bg-accent-hover"
+                                    }
+                                  `}
+                                >
+                                  Run Test
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-2 text-[11px] text-text-secondary space-y-1">
+                              <p>
+                                args: {testCase.args.length > 0 ? testCase.args.join(" ") : "(none)"}
+                              </p>
+                              <p>
+                                expected exit: {testCase.expectedExit || "(unspecified)"}
+                              </p>
+                            </div>
+                          </section>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       {!report && !latestRunError && (
         <div className="flex-1 flex items-center justify-center">
           <p className="text-[11px] text-text-secondary/60">
@@ -238,6 +520,15 @@ export function InspectorPane() {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="text-text-secondary">{label}: </span>
+      <span className="text-text-primary">{value}</span>
     </div>
   );
 }
@@ -259,4 +550,10 @@ function Stat({
       </span>
     </div>
   );
+}
+
+function fileName(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] || path;
 }
