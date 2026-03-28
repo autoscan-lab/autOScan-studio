@@ -171,7 +171,7 @@ function splitLines(value: string): string[] {
 function SimilarityPane({ tab }: { tab: SimilarityMainPaneTab }) {
   return (
     <div className="h-full overflow-auto p-4">
-      <section className="rounded-md border border-separator/60 bg-pane/50 p-3">
+      <section className="rounded-md border border-separator bg-pane/50 p-3">
         <p className="text-[11px] text-text-secondary uppercase tracking-wider">
           Similarity Analysis
         </p>
@@ -194,7 +194,7 @@ function SimilarityPane({ tab }: { tab: SimilarityMainPaneTab }) {
 function AIPane({ tab }: { tab: AIMainPaneTab }) {
   return (
     <div className="h-full overflow-auto p-4">
-      <section className="rounded-md border border-separator/60 bg-pane/50 p-3">
+      <section className="rounded-md border border-separator bg-pane/50 p-3">
         <p className="text-[11px] text-text-secondary uppercase tracking-wider">
           AI Analysis
         </p>

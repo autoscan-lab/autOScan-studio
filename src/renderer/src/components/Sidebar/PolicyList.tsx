@@ -11,12 +11,10 @@ type ContextMenuState = {
 export function PolicyList() {
   const policies = useAppStore((s) => s.policies);
   const selectedPolicyID = useAppStore((s) => s.selectedPolicyID);
-  const activePolicyID = useAppStore((s) => s.activePolicyID);
   const selectPolicyForEditing = useAppStore((s) => s.selectPolicyForEditing);
   const createPolicy = useAppStore((s) => s.createPolicy);
   const renamePolicy = useAppStore((s) => s.renamePolicy);
   const deletePolicy = useAppStore((s) => s.deletePolicy);
-  const setActivePolicy = useAppStore((s) => s.setActivePolicy);
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState>(null);
@@ -60,12 +58,6 @@ export function PolicyList() {
     setContextMenu(null);
   };
 
-  const handleSetActive = () => {
-    if (!contextPolicy) return;
-    setActivePolicy(contextPolicy.id);
-    setContextMenu(null);
-  };
-
   const handleDelete = () => {
     if (!contextPolicy) return;
     if (confirm(`Delete policy "${contextPolicy.name}"?`)) {
@@ -76,7 +68,7 @@ export function PolicyList() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <div className="border-b border-separator/70 p-2">
+      <div className="border-b border-separator p-2">
         {isCreating ? (
           <div className="flex gap-1.5">
             <input
@@ -116,7 +108,7 @@ export function PolicyList() {
               e.preventDefault();
               setContextMenu({
                 x: Math.min(e.clientX, window.innerWidth - 156),
-                y: Math.min(e.clientY, window.innerHeight - 108),
+                y: Math.min(e.clientY, window.innerHeight - 80),
                 policyID: policy.id,
               });
             }}
@@ -128,11 +120,6 @@ export function PolicyList() {
             <span className="truncate flex items-center gap-2 min-w-0">
               <MdDescription size={16} className="shrink-0 text-text-primary" />
               <span className="truncate font-medium">{policy.name}</span>
-              {policy.id === activePolicyID && (
-                <span className="text-[10px] text-accent font-medium shrink-0">
-                  active
-                </span>
-              )}
             </span>
             <button
               onClick={(e) => {
@@ -145,7 +132,7 @@ export function PolicyList() {
                   ),
                   y: Math.max(
                     8,
-                    Math.min(rect.top - 102, window.innerHeight - 110),
+                    Math.min(rect.top - 72, window.innerHeight - 82),
                   ),
                   policyID: policy.id,
                 });
@@ -176,12 +163,6 @@ export function PolicyList() {
             className="block w-full px-3 py-2 text-left text-[12px] text-text-primary hover:bg-hover cursor-default"
           >
             Rename
-          </button>
-          <button
-            onClick={handleSetActive}
-            className="block w-full px-3 py-2 text-left text-[12px] text-text-primary hover:bg-hover cursor-default"
-          >
-            Set Active
           </button>
           <button
             onClick={handleDelete}

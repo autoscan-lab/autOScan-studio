@@ -22,7 +22,16 @@ export interface BridgeCompilePayload {
 export interface BridgeScanPayload {
   submission_id: string;
   banned_hits: number;
+  banned_hits_details?: BridgeBannedHitPayload[];
   parse_errors?: string[];
+}
+
+export interface BridgeBannedHitPayload {
+  function: string;
+  file: string;
+  line?: number;
+  column?: number;
+  snippet?: string;
 }
 
 export interface BridgeDiffLinePayload {
@@ -111,6 +120,7 @@ export interface BridgeRunSubmissionResult {
   compile_time_ms: number;
   stderr?: string;
   banned_count: number;
+  banned_hits?: BridgeBannedHitPayload[];
 }
 
 export interface BridgeRunPayload {
@@ -153,6 +163,15 @@ export interface SubmissionResult {
   compileTimeMs: number;
   stderr: string;
   bannedHitCount: number;
+  bannedHits: BannedHit[];
+}
+
+export interface BannedHit {
+  functionName: string;
+  filePath: string;
+  line: number | null;
+  column: number | null;
+  snippet: string;
 }
 
 export interface RunSummary {

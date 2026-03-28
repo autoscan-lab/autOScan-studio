@@ -12,6 +12,7 @@ import { AnalysisPane } from "./AnalysisPane";
 export function EditorPane() {
   const sidebarMode = useAppStore((state) => state.sidebarMode);
   const hasWorkspace = useAppStore((state) => state.workspaceRootPath !== null);
+  const policiesCount = useAppStore((state) => state.policies.length);
   const activeMainPaneTab = useActiveMainPaneTab();
 
   const isShowingAnalysis =
@@ -24,7 +25,7 @@ export function EditorPane() {
       <div className="flex flex-col h-full bg-editor">
         <PolicyHeader />
         <div className="flex-1 min-h-0">
-          <PolicyEditor />
+          {policiesCount > 0 ? <PolicyEditor /> : <NoPoliciesEditorState />}
         </div>
       </div>
     );
@@ -60,7 +61,7 @@ function MainPaneHeader() {
             No view open
           </span>
         ) : (
-          <div className="flex h-full items-stretch border-l border-separator">
+          <div className="flex h-full items-stretch">
             {tabs.map((tab) => {
               const isActive = tab.id === activeTabID;
               const typeLabel =
@@ -114,6 +115,19 @@ function NoTabOpen() {
       <p className="text-sm text-text-secondary/70">
         Open a file or analysis view to begin.
       </p>
+    </div>
+  );
+}
+
+function NoPoliciesEditorState() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="text-center">
+        <p className="text-[13px] font-medium text-text-primary">No policies yet</p>
+        <p className="mt-1 text-[12px] text-text-secondary/80">
+          Create one from the Policies sidebar to start editing.
+        </p>
+      </div>
     </div>
   );
 }

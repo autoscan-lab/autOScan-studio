@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { WorkspaceNode, WorkspaceSnapshot } from "../types/workspace";
 import type { PolicyFile, PolicyDraft, TestCase } from "../types/policy";
 import type {
+  BannedHit,
   BridgeCapabilities,
   EngineRunReport,
   EngineRunEvent,
@@ -298,6 +299,62 @@ function mapCapabilities(value: BridgeCapabilities): EngineCapabilities {
   };
 }
 
+function mapBridgeBannedHit(hit: {
+  function: string;
+  file: string;
+  line?: number;
+  column?: number;
+  snippet?: string;
+}): BannedHit {
+  return {
+    functionName: hit.function,
+    filePath: hit.file,
+    line: hit.line ?? null,
+    column: hit.column ?? null,
+    snippet: hit.snippet ?? "",
+  };
+}
+
+function buildMockBannedHits(
+  submissionPath: string,
+  cFiles: string[],
+  count: number,
+): BannedHit[] {
+  if (count <= 0) return [];
+
+  const files = cFiles.length > 0 ? cFiles : ["SZ.c"];
+  const templates = [
+    {
+      functionName: "gets",
+      snippet: 'gets(buffer);',
+    },
+    {
+      functionName: "strcpy",
+      snippet: 'strcpy(dst, src);',
+    },
+    {
+      functionName: "system",
+      snippet: 'system("echo hi");',
+    },
+    {
+      functionName: "scanf",
+      snippet: 'scanf("%s", name);',
+    },
+  ];
+
+  return Array.from({ length: count }, (_, index) => {
+    const template = templates[index % templates.length];
+    const fileName = files[index % files.length];
+    return {
+      functionName: template.functionName,
+      filePath: `${submissionPath.replace(/\\/g, "/")}/${fileName}`,
+      line: 10 + index * 3,
+      column: 3,
+      snippet: template.snippet,
+    };
+  });
+}
+
 function resolveTestCaseIDByIndex(
   context: ActiveTestRunContext | null,
   index: number,
@@ -440,6 +497,17 @@ export const useAppStore = create<AppState>((set, get) => {
         inspectorViewMode: "table",
         selectedSubmissionID: null,
         inspectorDetailTab: "overview",
+        policies: [],
+        selectedPolicyID: null,
+        activePolicyID: null,
+        activePolicyTestCases: [],
+        selectedPolicyDraft: null,
+        loadedPolicyText: "",
+        selectedPolicyTestCaseID: null,
+        policyBanner: null,
+        isPolicyDirty: false,
+        testCaseResultsBySubmission: {},
+        activeTestRunContext: null,
       });
 
       await get().refreshPolicies();
@@ -642,7 +710,27 @@ export const useAppStore = create<AppState>((set, get) => {
       const rootPath = get().workspaceRootPath;
       if (!rootPath) return;
       const policies: PolicyFile[] = await window.api.listPolicies(rootPath);
-      set({ policies });
+      set((state) => {
+        const hasSelectedPolicy =
+          state.selectedPolicyID !== null &&
+          policies.some((policy) => policy.id === state.selectedPolicyID);
+        const hasActivePolicy =
+          state.activePolicyID !== null &&
+          policies.some((policy) => policy.id === state.activePolicyID);
+
+        return {
+          policies,
+          selectedPolicyID: hasSelectedPolicy ? state.selectedPolicyID : null,
+          selectedPolicyDraft: hasSelectedPolicy ? state.selectedPolicyDraft : null,
+          loadedPolicyText: hasSelectedPolicy ? state.loadedPolicyText : "",
+          isPolicyDirty: hasSelectedPolicy ? state.isPolicyDirty : false,
+          selectedPolicyTestCaseID: hasSelectedPolicy
+            ? state.selectedPolicyTestCaseID
+            : null,
+          activePolicyID: hasActivePolicy ? state.activePolicyID : null,
+          activePolicyTestCases: hasActivePolicy ? state.activePolicyTestCases : [],
+        };
+      });
     },
 
     selectPolicyForEditing: async (policyID) => {
@@ -1058,6 +1146,13 @@ export const useAppStore = create<AppState>((set, get) => {
                   : submission.compile_ok
                     ? "pass"
                     : "fail";
+              const bannedHits =
+                submission.banned_hits?.map(mapBridgeBannedHit) ??
+                buildMockBannedHits(
+                  submission.path,
+                  submission.c_files,
+                  submission.banned_count,
+                );
 
               return {
                 id: submission.id,
@@ -1071,6 +1166,7 @@ export const useAppStore = create<AppState>((set, get) => {
                 exitCode: submission.exit_code,
                 compileTimeMs: submission.compile_time_ms,
                 stderr: submission.stderr ?? "",
+                bannedHits,
               };
             }),
           };

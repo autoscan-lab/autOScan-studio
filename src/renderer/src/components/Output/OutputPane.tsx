@@ -15,7 +15,7 @@ export function OutputPane() {
     <div className="flex flex-col h-full bg-pane">
       <pre
         ref={scrollRef}
-        className="flex-1 overflow-auto px-3 py-2 text-[12px] leading-[18px] text-text-primary/90 font-mono whitespace-pre-wrap border-t border-separator/70"
+        className="flex-1 overflow-auto px-3 py-2 text-[12px] leading-[18px] text-text-primary/90 font-mono whitespace-pre-wrap border-b border-separator"
       >
         {outputText || 'No output yet.'}
       </pre>

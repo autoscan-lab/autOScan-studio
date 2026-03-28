@@ -3,17 +3,16 @@ import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
-  getSortedRowModel,
   useReactTable,
-  type SortingState,
 } from "@tanstack/react-table";
+import { MdChevronLeft, MdChevronRight, MdExpandMore } from "react-icons/md";
 import { useAppStore } from "../../stores/appStore";
 import type { InspectorDetailTab } from "../../stores/appStore";
-import type { SubmissionResult } from "../../types/engine";
+import type { BannedHit, SubmissionResult } from "../../types/engine";
 
 const columnHelper = createColumnHelper<SubmissionResult>();
 const DETAIL_TABS: { id: InspectorDetailTab; label: string }[] = [
-  { id: "overview", label: "Overview" },
+  { id: "overview", label: "Compile" },
   { id: "banned", label: "Banned" },
   { id: "tests", label: "Tests" },
 ];
@@ -39,17 +38,20 @@ export function InspectorPane() {
     (state) => state.testCaseResultsBySubmission,
   );
   const activeTestRunContext = useAppStore((state) => state.activeTestRunContext);
+  const [expandedBannedGroups, setExpandedBannedGroups] = useState<
+    Record<string, boolean>
+  >({});
 
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "submissionPath", desc: false },
-  ]);
-
-  const activePolicy = policies.find((policy) => policy.id === activePolicyID);
+  const hasPolicies = policies.length > 0;
   const isWorkspaceRunInProgress =
     isRunInProgress && activeTestRunContext === null;
   const selectedSubmission =
     report?.submissions.find((submission) => submission.id === selectedSubmissionID) ??
     null;
+  const groupedBannedHits = useMemo(
+    () => groupBannedHits(selectedSubmission?.bannedHits ?? []),
+    [selectedSubmission],
+  );
 
   const columns = useMemo(
     () => [
@@ -105,10 +107,7 @@ export function InspectorPane() {
   const table = useReactTable({
     data: report?.submissions ?? [],
     columns,
-    state: { sorting },
-    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   return (
@@ -121,39 +120,57 @@ export function InspectorPane() {
         </div>
       </div>
 
-      <div className="px-3 py-2.5 space-y-2 border-b border-separator/50 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-text-primary">Policy:</span>
-          <span className="text-[11px] text-text-primary font-medium truncate">
-            {activePolicy?.name ?? "None"}
-          </span>
-          <select
-            value={activePolicyID ?? ""}
-            onChange={(event) => void setActivePolicy(event.target.value || null)}
-            className="ml-auto bg-canvas border border-separator rounded px-1.5 py-0.5 text-[10px] text-text-primary outline-none"
-          >
-            {policies.map((policy) => (
-              <option key={policy.id} value={policy.id}>
-                {policy.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <button
-          onClick={() => void runWorkspaceSession()}
-          disabled={isRunInProgress || !activePolicyID}
-          className={`
-            w-full py-1.5 rounded-md text-[12px] font-semibold cursor-default
-            ${
-              isRunInProgress || !activePolicyID
-                ? "bg-hover text-text-secondary"
-                : "bg-accent text-white hover:bg-accent-hover"
-            }
-          `}
-        >
-          {isWorkspaceRunInProgress ? "Running…" : "Run Workspace"}
-        </button>
+      <div className="px-3 py-2.5 space-y-2 border-b border-separator shrink-0">
+        {hasPolicies ? (
+          <>
+            <div className="space-y-1">
+              <span className="block text-[11px] font-medium text-text-primary">
+                Choose policy
+              </span>
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <select
+                    value={activePolicyID ?? ""}
+                    onChange={(event) => void setActivePolicy(event.target.value || null)}
+                    className="h-8 w-full appearance-none rounded-md border border-separator bg-canvas/70 pl-2.5 pr-8 text-[12px] font-medium text-text-primary outline-none hover:border-separator focus:border-accent"
+                  >
+                    {policies.map((policy) => (
+                      <option key={policy.id} value={policy.id}>
+                        {policy.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-text-secondary">
+                    <MdExpandMore size={17} />
+                  </span>
+                </div>
+                <button
+                  onClick={() => void runWorkspaceSession()}
+                  disabled={isRunInProgress || !activePolicyID}
+                  className={`
+                    h-8 shrink-0 rounded-md px-3 text-[11px] font-semibold cursor-default
+                    ${
+                      isRunInProgress || !activePolicyID
+                        ? "bg-hover text-text-secondary"
+                        : "bg-accent text-white hover:bg-accent-hover"
+                    }
+                  `}
+                >
+                  {isWorkspaceRunInProgress ? "Running…" : "Run Workspace"}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="px-0.5 py-0.5">
+            <p className="text-[11px] font-medium text-text-primary">
+              No policies found
+            </p>
+            <p className="mt-1 text-[10px] text-text-secondary">
+              Create a policy in the Policies panel to run the workspace.
+            </p>
+          </div>
+        )}
       </div>
 
       {latestRunError && (
@@ -162,71 +179,24 @@ export function InspectorPane() {
         </div>
       )}
 
-      {report && (
-        <div className="px-3 py-2 border-b border-separator/50 shrink-0">
-          <div className="grid grid-cols-3 gap-2 text-[11px]">
-            <Stat label="Total" value={report.summary.totalSubmissions} />
-            <Stat
-              label="Pass"
-              value={report.summary.compilePass}
-              color="text-green-400"
-            />
-            <Stat
-              label="Fail"
-              value={report.summary.compileFail}
-              color="text-red-400"
-            />
-            <Stat
-              label="Timeout"
-              value={report.summary.compileTimeout}
-              color="text-yellow-400"
-            />
-            <Stat
-              label="Clean"
-              value={report.summary.cleanSubmissions}
-              color="text-green-400"
-            />
-            <Stat
-              label="Banned"
-              value={report.summary.bannedHits}
-              color="text-orange-400"
-            />
-          </div>
-        </div>
-      )}
-
       {report && table.getRowModel().rows.length > 0 && inspectorViewMode === "table" && (
         <div className="flex-1 overflow-auto">
-          <table className="w-full text-[11px]">
-            <thead className="sticky top-0 bg-pane z-10">
+          <table className="w-full border-separate border-spacing-0 text-[11px]">
+            <thead className="sticky top-0 z-10 bg-pane">
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr
                   key={headerGroup.id}
-                  className="border-b border-separator/50 text-text-secondary"
+                  className="text-text-secondary"
                 >
                   {headerGroup.headers.map((header) => {
-                    const canSort = header.column.getCanSort();
-                    const sorted = header.column.getIsSorted();
-
                     return (
                       <th
                         key={header.id}
-                        onClick={
-                          canSort
-                            ? header.column.getToggleSortingHandler()
-                            : undefined
-                        }
-                        className={`px-2 py-1.5 text-left font-medium ${canSort ? "cursor-default hover:text-text-primary" : ""}`}
+                        className="border-b border-separator px-2 py-1.5 text-left font-medium"
                       >
                         {flexRender(
                           header.column.columnDef.header,
                           header.getContext(),
-                        )}
-                        {sorted === "asc" && (
-                          <span className="ml-0.5 text-[9px]">▲</span>
-                        )}
-                        {sorted === "desc" && (
-                          <span className="ml-0.5 text-[9px]">▼</span>
                         )}
                       </th>
                     );
@@ -235,14 +205,24 @@ export function InspectorPane() {
               ))}
             </thead>
             <tbody>
-              {table.getRowModel().rows.map((row) => (
+              {table.getRowModel().rows.map((row, index, rows) => (
                 <tr
                   key={row.id}
                   onClick={() => openSubmissionDetail(row.original.id)}
-                  className="border-b border-separator/30 hover:bg-hover/50 cursor-pointer"
+                  className="hover:bg-hover/50 cursor-pointer"
                 >
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-2 py-1.5 align-middle">
+                    <td
+                      key={cell.id}
+                      className={`
+                        px-2 py-1.5 align-middle
+                        ${
+                          index === rows.length - 1
+                            ? "border-b border-separator"
+                            : "border-b border-separator/30"
+                        }
+                      `}
+                    >
                       {flexRender(
                         cell.column.columnDef.cell,
                         cell.getContext(),
@@ -258,16 +238,16 @@ export function InspectorPane() {
 
       {inspectorViewMode === "detail" && (
         <div className="flex-1 min-h-0 flex flex-col">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-separator/50 shrink-0">
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-separator shrink-0">
             <button
               onClick={closeSubmissionDetail}
               aria-label="Back to submissions table"
               title="Back"
-              className="text-[11px] text-accent hover:text-accent-hover"
+              className="text-accent hover:text-accent-hover"
             >
-              ←
+              <MdChevronLeft size={19} />
             </button>
-            <span className="ml-1 text-[11px] font-semibold text-text-primary truncate">
+            <span className="text-[11px] font-semibold text-text-primary truncate">
               {selectedSubmission
                 ? fileName(selectedSubmission.submissionPath)
                 : "Submission details"}
@@ -282,14 +262,14 @@ export function InspectorPane() {
             </div>
           ) : (
             <>
-              <div className="flex h-9 items-stretch border-b border-separator/50 shrink-0">
+              <div className="flex h-9 items-stretch border-b border-separator shrink-0">
                 {DETAIL_TABS.map((tab, index) => (
                   <button
                     key={tab.id}
                     onClick={() => setInspectorDetailTab(tab.id)}
                     className={`
                       flex-1 min-w-0 h-full px-2 text-[10px] font-semibold cursor-default
-                      ${index < DETAIL_TABS.length - 1 ? "border-r border-separator/60" : ""}
+                      ${index < DETAIL_TABS.length - 1 ? "border-r border-separator" : ""}
                       ${
                         inspectorDetailTab === tab.id
                           ? "bg-hover text-text-primary"
@@ -304,110 +284,126 @@ export function InspectorPane() {
 
               <div className="flex-1 min-h-0 overflow-auto p-3">
                 {inspectorDetailTab === "overview" && (
-                  <div className="space-y-3">
-                    <section className="rounded-md border border-separator/60 bg-canvas/30">
-                      <div className="flex items-center justify-between border-b border-separator/50 px-3 py-2">
-                        <span className="text-[10px] uppercase tracking-wider text-text-secondary">
-                          Compile Summary
-                        </span>
-                        <span
-                          className={`text-[10px] font-semibold uppercase tracking-wider ${
-                            selectedSubmission.compileStatus === "pass"
-                              ? "text-green-400"
-                              : selectedSubmission.compileStatus === "timeout"
-                                ? "text-yellow-400"
-                                : "text-red-400"
-                          }`}
-                        >
-                          {selectedSubmission.compileStatus}
-                        </span>
-                      </div>
+                  <div className="space-y-0">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-text-secondary">Compile details</span>
+                    </div>
+                    <div className="-mx-3 border-b border-t border-separator">
+                      <pre className="px-3 py-2 text-[11px] whitespace-pre-wrap font-mono text-text-primary">
+                        {selectedSubmission.stderr || "No compile output."}
+                      </pre>
+                    </div>
 
-                      <dl className="grid grid-cols-[auto,1fr] gap-x-3 gap-y-2 px-3 py-2.5 text-[12px]">
-                        <dt className="text-text-secondary">Time</dt>
-                        <dd className="text-text-primary">
-                          {selectedSubmission.compileTimeMs}ms
-                        </dd>
-
-                        <dt className="text-text-secondary">Exit Code</dt>
-                        <dd className="text-text-primary">
-                          {selectedSubmission.exitCode === null
-                            ? "N/A"
-                            : String(selectedSubmission.exitCode)}
-                        </dd>
-
-                        <dt className="text-text-secondary">Banned Hits</dt>
-                        <dd
-                          className={
-                            selectedSubmission.bannedHitCount > 0
-                              ? "text-orange-400"
-                              : "text-text-primary"
-                          }
-                        >
-                          {selectedSubmission.bannedHitCount}
-                        </dd>
-                      </dl>
-                    </section>
-
-                    <section className="rounded-md border border-separator/60 bg-canvas/30">
-                      <div className="border-b border-separator/50 px-3 py-2">
-                        <span className="text-[10px] uppercase tracking-wider text-text-secondary">
-                          Compile
-                        </span>
-                      </div>
-                      <div className="px-3 py-2.5">
-                        <pre className="text-[11px] text-text-primary whitespace-pre-wrap font-mono">
-                          {selectedSubmission.stderr || "No compile output."}
-                        </pre>
-                      </div>
-                    </section>
-
-                    <div>
-                      <p className="text-[10px] text-text-secondary uppercase tracking-wider">
-                        C Files
-                      </p>
-                      {selectedSubmission.cFiles.length > 0 ? (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {selectedSubmission.cFiles.map((cFile) => (
-                            <span
-                              key={cFile}
-                              className="rounded-sm border border-separator/60 bg-hover/40 px-2 py-0.5 text-[10px] font-mono text-text-primary"
-                            >
-                              {cFile}
-                            </span>
-                          ))}
+                    <div className="-mx-3 border-b border-separator px-3 py-1">
+                      <div className="grid grid-cols-[120px_1fr] gap-3 text-[11px]">
+                        <span className="text-text-secondary">C files</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {selectedSubmission.cFiles.length > 0 ? (
+                            selectedSubmission.cFiles.map((cFile) => (
+                              <span
+                                key={cFile}
+                                className="rounded-sm border border-separator bg-hover/30 px-2 py-0.5 text-[10px] font-mono text-text-primary"
+                              >
+                                {cFile}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-text-secondary">No C files detected.</span>
+                          )}
                         </div>
-                      ) : (
-                        <p className="mt-2 text-[11px] text-text-secondary">
-                          No C files detected.
-                        </p>
-                      )}
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {inspectorDetailTab === "banned" && (
                   <div className="space-y-3">
-                    <Info
-                      label="Banned hits"
-                      value={String(selectedSubmission.bannedHitCount)}
-                    />
-                    <p className="text-[11px] text-text-secondary">
-                      Per-hit snippets and line details will appear here when the
-                      bridge report includes full banned hit payloads.
-                    </p>
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-text-secondary">Total hits</span>
+                      <span className="font-semibold text-text-primary">
+                        {selectedSubmission.bannedHitCount}
+                      </span>
+                    </div>
+
+                    {selectedSubmission.bannedHits.length === 0 ? (
+                      <p className="text-[11px] text-text-secondary">
+                        No banned hits detected for this submission.
+                      </p>
+                    ) : (
+                      <div className="-mx-3">
+                        {groupedBannedHits.map((group, groupIndex) => {
+                          const groupKey = `${selectedSubmission.id}::${group.functionName.toLowerCase()}`;
+                          const isExpanded = expandedBannedGroups[groupKey] ?? true;
+
+                          return (
+                            <section
+                              key={groupKey}
+                              className={`border-b border-separator ${groupIndex === 0 ? "border-t" : ""}`}
+                            >
+                              <button
+                                onClick={() =>
+                                  setExpandedBannedGroups((state) => ({
+                                    ...state,
+                                    [groupKey]: !isExpanded,
+                                  }))
+                                }
+                                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] hover:bg-hover/30 cursor-default"
+                              >
+                                <span className="font-semibold uppercase tracking-wide text-text-primary">
+                                  {group.functionName}
+                                </span>
+                                <span className="text-text-secondary">
+                                  ({group.hits.length})
+                                </span>
+                                <span className="ml-auto text-text-secondary">
+                                  {isExpanded ? (
+                                    <MdExpandMore size={18} />
+                                  ) : (
+                                    <MdChevronRight size={18} />
+                                  )}
+                                </span>
+                              </button>
+
+                              {isExpanded && (
+                                <div className="pb-1">
+                                  {group.hits.map((hit, index) => (
+                                    <div
+                                      key={`${groupKey}-${hit.line ?? index}-${index}`}
+                                      className="flex items-start gap-2 border-b border-separator px-3 py-2 text-[11px] last:border-b-0"
+                                    >
+                                      <pre className="min-w-0 flex-1 whitespace-pre-wrap font-mono text-text-primary">
+                                        {hit.snippet || "(no snippet)"}
+                                      </pre>
+                                      <span className="shrink-0 text-text-secondary">
+                                        {hit.line !== null ? `L${hit.line}` : "L?"}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </section>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {inspectorDetailTab === "tests" && (
                   <div className="space-y-3">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-text-secondary">Total tests</span>
+                      <span className="font-semibold text-text-primary">
+                        {activePolicyTestCases.length}
+                      </span>
+                    </div>
                     {activePolicyTestCases.length === 0 ? (
                       <p className="text-[11px] text-text-secondary">
                         No test cases found in the active policy.
                       </p>
                     ) : (
-                      <div className="space-y-2">
-                        {activePolicyTestCases.map((testCase) => {
+                      <div className="-mx-3">
+                        {activePolicyTestCases.map((testCase, testIndex) => {
                           const result = selectedSubmission
                             ? testCaseResultsBySubmission[selectedSubmission.id]?.[
                                 testCase.id
@@ -426,12 +422,12 @@ export function InspectorPane() {
                           const statusLabel = effectiveStatus.replace(/_/g, " ");
 
                           return (
-                            <section
+                            <div
                               key={testCase.id}
-                              className="rounded-md border border-separator/60 bg-canvas/40 p-3"
+                              className={`border-b border-separator px-3 py-2.5 ${testIndex === 0 ? "border-t" : ""}`}
                             >
                               {selectedSubmission && (
-                                <div className="mb-2 flex items-center justify-between text-[10px]">
+                                <div className="mb-1.5 flex items-center justify-between text-[10px]">
                                   <span className={`uppercase tracking-wider ${statusTone}`}>
                                     {statusLabel}
                                   </span>
@@ -443,51 +439,49 @@ export function InspectorPane() {
                                     )}
                                 </div>
                               )}
-                            <div className="flex items-center gap-2">
-                              <span className="text-[12px] font-medium text-text-primary truncate">
-                                {testCase.name || "Untitled test"}
-                              </span>
-                              <div className="ml-auto flex items-center gap-1.5">
-                                <button
-                                  onClick={() =>
-                                    void runSubmissionTestCase(
-                                      selectedSubmission.id,
-                                      testCase.id,
-                                    )
-                                  }
-                                  disabled={
-                                    isRunInProgress || !engineCapabilities.testCaseRun
-                                  }
-                                  className={`
-                                    rounded px-2 py-1 text-[10px] cursor-default
-                                    ${
-                                      isRunInProgress || !engineCapabilities.testCaseRun
-                                        ? "bg-hover text-text-secondary"
-                                        : "bg-accent text-white hover:bg-accent-hover"
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-[12px] font-medium text-text-primary">
+                                  {testCase.name || "Untitled test"}
+                                </span>
+                                <div className="ml-auto flex items-center gap-1.5">
+                                  <button
+                                    onClick={() =>
+                                      void runSubmissionTestCase(
+                                        selectedSubmission.id,
+                                        testCase.id,
+                                      )
                                     }
-                                  `}
-                                >
-                                  {isThisTestRunning
-                                    ? "Running…"
-                                    : "Run Test"}
-                                </button>
+                                    disabled={
+                                      isRunInProgress || !engineCapabilities.testCaseRun
+                                    }
+                                    className={`
+                                      rounded px-2 py-1 text-[10px] cursor-default
+                                      ${
+                                        isRunInProgress || !engineCapabilities.testCaseRun
+                                          ? "bg-hover text-text-secondary"
+                                          : "bg-accent text-white hover:bg-accent-hover"
+                                      }
+                                    `}
+                                  >
+                                    {isThisTestRunning
+                                      ? "Running…"
+                                      : "Run Test"}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="mt-2 space-y-1 text-[11px] text-text-secondary">
+                                <p>
+                                  args:{" "}
+                                  {testCase.args.length > 0 ? testCase.args.join(" ") : "(none)"}
+                                </p>
+                                <p>
+                                  expected exit: {testCase.expectedExit || "(unspecified)"}
+                                </p>
+                                {selectedSubmission &&
+                                  result &&
+                                  result.message && <p>{result.message}</p>}
                               </div>
                             </div>
-                            <div className="mt-2 text-[11px] text-text-secondary space-y-1">
-                              <p>
-                                args: {testCase.args.length > 0 ? testCase.args.join(" ") : "(none)"}
-                              </p>
-                              <p>
-                                expected exit: {testCase.expectedExit || "(unspecified)"}
-                              </p>
-                              {selectedSubmission &&
-                                result && (
-                                  <>
-                                    {result.message && <p>{result.message}</p>}
-                                  </>
-                                )}
-                            </div>
-                            </section>
                           );
                         })}
                       </div>
@@ -512,38 +506,32 @@ export function InspectorPane() {
   );
 }
 
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <span className="text-text-secondary">{label}: </span>
-      <span className="text-text-primary">{value}</span>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: number;
-  color?: string;
-}) {
-  return (
-    <div>
-      <span className="text-text-secondary">{label}: </span>
-      <span className={`font-semibold ${color ?? "text-text-primary"}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
 function fileName(path: string): string {
   const normalized = path.replace(/\\/g, "/");
   const segments = normalized.split("/");
   return segments[segments.length - 1] || path;
+}
+
+function groupBannedHits(
+  hits: BannedHit[],
+): { functionName: string; hits: BannedHit[] }[] {
+  const groups = new Map<string, { functionName: string; hits: BannedHit[] }>();
+
+  for (const hit of hits) {
+    const key = hit.functionName.toLowerCase();
+    const group = groups.get(key);
+    if (group) {
+      group.hits.push(hit);
+      continue;
+    }
+
+    groups.set(key, {
+      functionName: hit.functionName,
+      hits: [hit],
+    });
+  }
+
+  return Array.from(groups.values());
 }
 
 function statusToneClass(status: string): string {
