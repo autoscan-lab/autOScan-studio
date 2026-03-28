@@ -7,7 +7,6 @@ import {
   useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
-import { Lock } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import type { InspectorDetailTab } from "../../stores/appStore";
 import type { SubmissionResult } from "../../types/engine";
@@ -26,7 +25,6 @@ export function InspectorPane() {
   const setActivePolicy = useAppStore((state) => state.setActivePolicy);
   const runWorkspaceSession = useAppStore((state) => state.runWorkspaceSession);
   const runSubmissionTestCase = useAppStore((state) => state.runSubmissionTestCase);
-  const runSubmissionAllTests = useAppStore((state) => state.runSubmissionAllTests);
   const isRunInProgress = useAppStore((state) => state.isRunInProgress);
   const latestRunError = useAppStore((state) => state.latestRunError);
   const inspectorViewMode = useAppStore((state) => state.inspectorViewMode);
@@ -37,12 +35,8 @@ export function InspectorPane() {
   const setInspectorDetailTab = useAppStore((state) => state.setInspectorDetailTab);
   const activePolicyTestCases = useAppStore((state) => state.activePolicyTestCases);
   const engineCapabilities = useAppStore((state) => state.engineCapabilities);
-  const openOrFocusAnalysisTab = useAppStore((state) => state.openOrFocusAnalysisTab);
   const testCaseResultsBySubmission = useAppStore(
     (state) => state.testCaseResultsBySubmission,
-  );
-  const testsSummaryBySubmission = useAppStore(
-    (state) => state.testsSummaryBySubmission,
   );
   const activeTestRunContext = useAppStore((state) => state.activeTestRunContext);
 
@@ -116,38 +110,6 @@ export function InspectorPane() {
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
-
-  const openDiffTab = (testCaseID: string, testCaseName: string) => {
-    if (!selectedSubmission) return;
-
-    const latestResult =
-      testCaseResultsBySubmission[selectedSubmission.id]?.[testCaseID] ?? null;
-    const hasDiffPayload =
-      latestResult !== null &&
-      (latestResult.expectedOutput !== null ||
-        latestResult.actualOutput !== null ||
-        (latestResult.diffLines?.length ?? 0) > 0 ||
-        latestResult.outputMatch === "pass" ||
-        latestResult.outputMatch === "fail");
-
-    openOrFocusAnalysisTab({
-      kind: "diff",
-      title: `Diff · ${fileName(selectedSubmission.submissionPath)} · ${testCaseName}`,
-      payload: {
-        submissionID: selectedSubmission.id,
-        testCaseID,
-        state: hasDiffPayload ? "ready" : "unavailable",
-        expectedOutput: latestResult?.expectedOutput ?? null,
-        actualOutput: latestResult?.actualOutput ?? null,
-        stdout: latestResult?.stdout ?? null,
-        stderr: latestResult?.stderr ?? null,
-        diffLines: latestResult?.diffLines ?? null,
-        message:
-          latestResult?.message ??
-          "Run this test to populate expected vs actual output and diff lines.",
-      },
-    });
-  };
 
   return (
     <div className="flex flex-col h-full bg-pane">
@@ -439,52 +401,6 @@ export function InspectorPane() {
 
                 {inspectorDetailTab === "tests" && (
                   <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => {
-                          if (!engineCapabilities.runAllPolicyTests || isRunInProgress) {
-                            return;
-                          }
-                          void runSubmissionAllTests(selectedSubmission.id);
-                        }}
-                        disabled={isRunInProgress}
-                        title={
-                          engineCapabilities.runAllPolicyTests
-                            ? undefined
-                            : "Requires bridge support for policy test execution."
-                        }
-                        className={`
-                          group relative rounded px-2 py-1 pr-7 text-[11px] font-semibold
-                          ${
-                            isRunInProgress
-                              ? "bg-hover text-text-secondary"
-                              : "bg-accent text-white hover:bg-accent-hover"
-                          }
-                          ${!engineCapabilities.runAllPolicyTests ? "cursor-not-allowed" : "cursor-default"}
-                        `}
-                      >
-                        Run All Tests
-                        {!engineCapabilities.runAllPolicyTests && (
-                          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
-                            <Lock size={12} />
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                    {selectedSubmission &&
-                      testsSummaryBySubmission[selectedSubmission.id] && (
-                        <p className="text-[10px] text-text-secondary">
-                          Last run:{" "}
-                          {testsSummaryBySubmission[selectedSubmission.id].passed} pass,{" "}
-                          {testsSummaryBySubmission[selectedSubmission.id].failed} fail,{" "}
-                          {
-                            testsSummaryBySubmission[selectedSubmission.id]
-                              .compileFailed
-                          }{" "}
-                          compile failed
-                        </p>
-                      )}
-
                     {activePolicyTestCases.length === 0 ? (
                       <p className="text-[11px] text-text-secondary">
                         No test cases found in the active policy.
@@ -502,13 +418,7 @@ export function InspectorPane() {
                             activeTestRunContext?.mode === "single" &&
                             activeTestRunContext.submissionID === selectedSubmission?.id &&
                             activeTestRunContext.singleTestCaseID === testCase.id;
-                          const isAllRunForThisCase =
-                            isRunInProgress &&
-                            activeTestRunContext?.mode === "all" &&
-                            activeTestRunContext.submissionID === selectedSubmission?.id &&
-                            result?.status === "running";
-                          const isThisTestRunning =
-                            isSingleRunForThisCase || isAllRunForThisCase;
+                          const isThisTestRunning = isSingleRunForThisCase;
                           const effectiveStatus = isThisTestRunning
                             ? "running"
                             : (result?.status ?? "idle");
@@ -538,17 +448,6 @@ export function InspectorPane() {
                                 {testCase.name || "Untitled test"}
                               </span>
                               <div className="ml-auto flex items-center gap-1.5">
-                                <button
-                                  onClick={() =>
-                                    openDiffTab(
-                                      testCase.id,
-                                      testCase.name || "Untitled test",
-                                    )
-                                  }
-                                  className="rounded px-2 py-1 text-[10px] bg-hover text-text-primary hover:bg-hover/80"
-                                >
-                                  View Diff
-                                </button>
                                 <button
                                   onClick={() =>
                                     void runSubmissionTestCase(
@@ -584,15 +483,6 @@ export function InspectorPane() {
                               {selectedSubmission &&
                                 result && (
                                   <>
-                                    <p>
-                                      exit:{" "}
-                                      {result.exitCode === null
-                                        ? "(n/a)"
-                                        : String(result.exitCode)}
-                                    </p>
-                                    {result.outputMatch && (
-                                      <p>output match: {result.outputMatch}</p>
-                                    )}
                                     {result.message && <p>{result.message}</p>}
                                   </>
                                 )}

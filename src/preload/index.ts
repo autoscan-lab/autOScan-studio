@@ -63,17 +63,6 @@ export const api = {
       submissionID,
       testCaseIndex,
     ),
-  runAllTests: (
-    workspacePath: string,
-    policyPath: string,
-    submissionID: string,
-  ) =>
-    ipcRenderer.invoke(
-      "engine:run-all-tests",
-      workspacePath,
-      policyPath,
-      submissionID,
-    ),
   getEngineCapabilities: () => ipcRenderer.invoke("engine:get-capabilities"),
   cancelRun: () => ipcRenderer.invoke("engine:cancel"),
   onEngineEvent: (callback: (event: unknown) => void) => {

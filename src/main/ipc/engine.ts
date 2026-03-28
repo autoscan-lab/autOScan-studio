@@ -159,26 +159,6 @@ export function registerEngineHandlers(): void {
     },
   );
 
-  ipcMain.handle(
-    "engine:run-all-tests",
-    async (
-      _event: Electron.IpcMainInvokeEvent,
-      workspacePath: string,
-      policyPath: string,
-      submissionID: string,
-    ): Promise<void> => {
-      startBridgeStreaming([
-        "run-all-tests",
-        "--workspace",
-        workspacePath,
-        "--policy",
-        policyPath,
-        "--submission-id",
-        submissionID,
-      ]);
-    },
-  );
-
   ipcMain.handle("engine:get-capabilities", async (): Promise<unknown> => {
     try {
       return await runBridgeJSONCommand(["capabilities"]);

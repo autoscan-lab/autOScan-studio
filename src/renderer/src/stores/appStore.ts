@@ -112,7 +112,6 @@ export type AnalysisTabInput =
 
 export interface EngineCapabilities {
   testCaseRun: boolean;
-  runAllPolicyTests: boolean;
 }
 
 export type SubmissionTestCaseStatus =
@@ -141,17 +140,8 @@ export interface SubmissionTestCaseResult {
   message: string | null;
 }
 
-export interface SubmissionTestsSummary {
-  submissionID: string;
-  total: number;
-  passed: number;
-  failed: number;
-  compileFailed: number;
-  missingExpectedOutput: number;
-}
-
 interface ActiveTestRunContext {
-  mode: "single" | "all";
+  mode: "single";
   submissionID: string;
   singleTestCaseID: string | null;
   testCaseIDsByIndex: string[];
@@ -210,7 +200,6 @@ interface AppState {
     string,
     Record<string, SubmissionTestCaseResult>
   >;
-  testsSummaryBySubmission: Record<string, SubmissionTestsSummary>;
   activeTestRunContext: ActiveTestRunContext | null;
 
   // Actions
@@ -247,7 +236,6 @@ interface AppState {
     submissionID: string,
     testCaseID: string,
   ) => Promise<void>;
-  runSubmissionAllTests: (submissionID: string) => Promise<void>;
   cancelRun: () => Promise<void>;
   clearOutput: () => void;
   handleEngineEvent: (event: EngineRunEvent) => void;
@@ -307,7 +295,6 @@ function getSelectedSubmission(
 function mapCapabilities(value: BridgeCapabilities): EngineCapabilities {
   return {
     testCaseRun: Boolean(value.run_test_case),
-    runAllPolicyTests: Boolean(value.run_all_policy_tests),
   };
 }
 
@@ -385,10 +372,8 @@ export const useAppStore = create<AppState>((set, get) => {
     inspectorDetailTab: "overview",
     engineCapabilities: {
       testCaseRun: false,
-      runAllPolicyTests: false,
     },
     testCaseResultsBySubmission: {},
-    testsSummaryBySubmission: {},
     activeTestRunContext: null,
 
     // Actions
@@ -400,7 +385,6 @@ export const useAppStore = create<AppState>((set, get) => {
         set({
           engineCapabilities: {
             testCaseRun: false,
-            runAllPolicyTests: false,
           },
         });
       }
@@ -906,7 +890,6 @@ export const useAppStore = create<AppState>((set, get) => {
         inspectorDetailTab: "overview",
         activeTestRunContext: null,
         testCaseResultsBySubmission: {},
-        testsSummaryBySubmission: {},
       });
 
       await window.api.runSession(workspaceRootPath, policy.path);
@@ -977,30 +960,6 @@ export const useAppStore = create<AppState>((set, get) => {
         submissionID,
         testCaseIndex,
       );
-    },
-
-    runSubmissionAllTests: async (submissionID) => {
-      const { workspaceRootPath, activePolicyID, policies, activePolicyTestCases } = get();
-      if (!workspaceRootPath || !activePolicyID) return;
-
-      const policy = policies.find((item) => item.id === activePolicyID);
-      if (!policy) return;
-
-      set({
-        isRunInProgress: true,
-        latestRunError: null,
-        runStatusMessage: "Running all tests…",
-        runOutputText: `Running all tests for ${submissionID}\n`,
-        isOutputVisible: true,
-        activeTestRunContext: {
-          mode: "all",
-          submissionID,
-          singleTestCaseID: null,
-          testCaseIDsByIndex: activePolicyTestCases.map((tc) => tc.id),
-        },
-      });
-
-      await window.api.runAllTests(workspaceRootPath, policy.path, submissionID);
     },
 
     cancelRun: async () => {
@@ -1287,24 +1246,8 @@ export const useAppStore = create<AppState>((set, get) => {
           break;
         }
 
-        case "tests_complete": {
-          const payload = event.tests_complete;
-          set((state) => ({
-            runStatusMessage: `Tests done · ${payload.passed} pass · ${payload.failed} fail`,
-            testsSummaryBySubmission: {
-              ...state.testsSummaryBySubmission,
-              [payload.submission_id]: {
-                submissionID: payload.submission_id,
-                total: payload.total,
-                passed: payload.passed,
-                failed: payload.failed,
-                compileFailed: payload.compile_failed,
-                missingExpectedOutput: payload.missing_expected_output,
-              },
-            },
-          }));
+        case "tests_complete":
           break;
-        }
 
         case "error":
           set({
