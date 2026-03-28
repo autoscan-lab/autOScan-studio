@@ -15,10 +15,7 @@ export function EditorPane() {
   const policiesCount = useAppStore((state) => state.policies.length);
   const activeMainPaneTab = useActiveMainPaneTab();
 
-  const isShowingAnalysis =
-    activeMainPaneTab !== null && activeMainPaneTab.kind !== "file";
-  const isShowingPolicyEditor =
-    sidebarMode === "policies" && hasWorkspace && !isShowingAnalysis;
+  const isShowingPolicyEditor = sidebarMode === "policies" && hasWorkspace;
 
   if (isShowingPolicyEditor) {
     return (

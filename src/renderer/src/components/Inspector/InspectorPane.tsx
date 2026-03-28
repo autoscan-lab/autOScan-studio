@@ -284,8 +284,8 @@ export function InspectorPane() {
 
               <div className="flex-1 min-h-0 overflow-auto p-3">
                 {inspectorDetailTab === "overview" && (
-                  <div className="space-y-0">
-                    <div className="flex items-center justify-between text-[11px]">
+                  <div>
+                    <div className="mb-3 flex items-center justify-between text-[11px]">
                       <span className="text-text-secondary">Compile details</span>
                     </div>
                     <div className="-mx-3 border-b border-t border-separator">
@@ -294,7 +294,7 @@ export function InspectorPane() {
                       </pre>
                     </div>
 
-                    <div className="-mx-3 border-b border-separator px-3 py-1">
+                    <div className="-mx-3 border-b border-separator px-3 py-1.5">
                       <div className="grid grid-cols-[120px_1fr] gap-3 text-[11px]">
                         <span className="text-text-secondary">C files</span>
                         <div className="flex flex-wrap gap-1.5">

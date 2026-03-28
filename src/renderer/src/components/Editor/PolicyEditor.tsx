@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   MdAdd,
   MdExpandLess,
@@ -21,12 +21,19 @@ export function PolicyEditor() {
   const removeTestCase = useAppStore((s) => s.removeTestCase);
   const updateTestCase = useAppStore((s) => s.updateTestCase);
   const selectedTestCaseID = useAppStore((s) => s.selectedPolicyTestCaseID);
+  const selectedPolicyID = useAppStore((s) => s.selectedPolicyID);
   const policyBanner = useAppStore((s) => s.policyBanner);
   const isPolicyDirty = useAppStore((s) => s.isPolicyDirty);
 
-  const [compileOpen, setCompileOpen] = useState(true);
-  const [supportFilesOpen, setSupportFilesOpen] = useState(true);
-  const [testCasesOpen, setTestCasesOpen] = useState(true);
+  const [compileOpen, setCompileOpen] = useState(false);
+  const [supportFilesOpen, setSupportFilesOpen] = useState(false);
+  const [testCasesOpen, setTestCasesOpen] = useState(false);
+
+  useEffect(() => {
+    setCompileOpen(false);
+    setSupportFilesOpen(false);
+    setTestCasesOpen(false);
+  }, [selectedPolicyID]);
 
   if (!draft) {
     return (
