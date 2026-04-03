@@ -1147,41 +1147,52 @@ export const useAppStore = create<AppState>((set, get) => {
         return;
       }
 
-      const rows = mapExportSummaryRows(latestRunReport);
-      const baseName = buildExportBaseName();
-      const defaultPath = workspaceRootPath
-        ? `${workspaceRootPath}/${baseName}.csv`
-        : `${baseName}.csv`;
+      try {
+        const rows = mapExportSummaryRows(latestRunReport);
+        const baseName = buildExportBaseName();
+        const defaultPath = workspaceRootPath
+          ? `${workspaceRootPath}/${baseName}.csv`
+          : `${baseName}.csv`;
 
-      const selectedPath = await window.api.saveFile(
-        "Export Grading Summary",
-        defaultPath,
-        [
-          { name: "CSV", extensions: ["csv"] },
-          { name: "JSON", extensions: ["json"] },
-        ],
-      );
-      if (!selectedPath) return;
+        const selectedPath = await window.api.saveFile(
+          "Export Grading Summary",
+          defaultPath,
+          [
+            { name: "CSV", extensions: ["csv"] },
+            { name: "JSON", extensions: ["json"] },
+          ],
+        );
+        if (!selectedPath) return;
 
-      const normalizedPath = selectedPath.toLowerCase();
-      const targetPath =
-        normalizedPath.endsWith(".csv") || normalizedPath.endsWith(".json")
-          ? selectedPath
-          : `${selectedPath}.csv`;
+        const normalizedPath = selectedPath.toLowerCase();
+        const targetPath =
+          normalizedPath.endsWith(".csv") || normalizedPath.endsWith(".json")
+            ? selectedPath
+            : `${selectedPath}.csv`;
 
-      const isJsonExport = targetPath.toLowerCase().endsWith(".json");
-      const content = isJsonExport
-        ? JSON.stringify(rows, null, 2)
-        : serializeExportSummaryCsv(rows);
+        const isJsonExport = targetPath.toLowerCase().endsWith(".json");
+        const content = isJsonExport
+          ? JSON.stringify(rows, null, 2)
+          : serializeExportSummaryCsv(rows);
 
-      await window.api.writeTextFile(targetPath, content);
-      set((state) => ({
-        isOutputVisible: true,
-        runStatusMessage: "Summary exported",
-        runOutputText:
-          state.runOutputText +
-          `[Export] Saved ${rows.length} rows to ${targetPath}\n`,
-      }));
+        await window.api.writeTextFile(targetPath, content);
+        set((state) => ({
+          isOutputVisible: true,
+          runStatusMessage: "Summary exported",
+          runOutputText:
+            state.runOutputText +
+            `[Export] Saved ${rows.length} rows to ${targetPath}\n`,
+        }));
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message ? err.message : String(err);
+        set((state) => ({
+          isOutputVisible: true,
+          runStatusMessage: "Export failed",
+          runOutputText:
+            state.runOutputText + `[Export] Failed to export summary: ${message}\n`,
+        }));
+      }
     },
 
     cancelRun: async () => {
