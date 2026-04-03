@@ -1,0 +1,64 @@
+name: Bump Engine Tag
+
+on:
+  repository_dispatch:
+    types:
+      - engine_release
+  workflow_dispatch:
+    inputs:
+      engine_tag:
+        description: Engine release tag to apply (for example: v1.2.1)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve engine tag
+        id: resolve
+        run: |
+          TAG="${{ github.event.client_payload.engine_tag || inputs.engine_tag }}"
+          if [ -z "$TAG" ]; then
+            echo "Missing engine tag."
+            exit 1
+          fi
+          echo "engine_tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Update package.json engineTag
+        id: update
+        env:
+          ENGINE_TAG: ${{ steps.resolve.outputs.engine_tag }}
+        run: |
+          CURRENT="$(node -p "require('./package.json').config?.engineTag ?? ''")"
+          echo "Current engine tag: $CURRENT"
+          echo "Target engine tag:  $ENGINE_TAG"
+          if [ "$CURRENT" = "$ENGINE_TAG" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          node -e "const fs=require('fs'); const p=require('./package.json'); p.config=p.config||{}; p.config.engineTag=process.env.ENGINE_TAG; fs.writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n');"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        if: steps.update.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          commit-message: "chore: bump engine to ${{ steps.resolve.outputs.engine_tag }}"
+          branch: "chore/bump-engine-${{ steps.resolve.outputs.engine_tag }}"
+          delete-branch: true
+          title: "chore: bump engine to ${{ steps.resolve.outputs.engine_tag }}"
+          body: |
+            Automated engine version bump.
+
+            - Source: `autoscan-lab/autOScan-engine`
+            - New engine tag: `${{ steps.resolve.outputs.engine_tag }}`
+            - Updated: `package.json` (`config.engineTag`)
