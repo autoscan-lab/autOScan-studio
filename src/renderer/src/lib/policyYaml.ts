@@ -1,6 +1,14 @@
 import type { PolicyDraft, TestCase } from '../types/policy'
 import { createTestCase } from '../types/policy'
 
+function normalizeExpectedOutputRef(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const normalized = trimmed.replace(/\\/g, '/')
+  const segments = normalized.split('/').filter(Boolean)
+  return segments.length > 0 ? segments[segments.length - 1] : trimmed
+}
+
 function yamlScalar(value: string): string {
   if (!value) return '""'
   if (/[:#\[\]{}&*!|>'"%@`,?]/.test(value) || value.includes('\n')) {
@@ -47,7 +55,11 @@ export function serializePolicy(draft: PolicyDraft): string {
       lines.push(`      expected_exit: ${tc.expectedExit.trim()}`)
     }
     if (tc.expectedOutputFile.trim()) {
-      lines.push(`      expected_output_file: ${yamlScalar(tc.expectedOutputFile)}`)
+      lines.push(
+        `      expected_output_file: ${yamlScalar(
+          normalizeExpectedOutputRef(tc.expectedOutputFile),
+        )}`,
+      )
     }
   }
 
@@ -224,7 +236,9 @@ function parseTestCases(lines: string[], idx: { value: number }): TestCase[] {
         } else if (tt.startsWith('expected_exit:')) {
           tc.expectedExit = tt.slice('expected_exit:'.length).trim()
         } else if (tt.startsWith('expected_output_file:')) {
-          tc.expectedOutputFile = parseYAMLScalar(tt.slice('expected_output_file:'.length))
+          tc.expectedOutputFile = normalizeExpectedOutputRef(
+            parseYAMLScalar(tt.slice('expected_output_file:'.length)),
+          )
         }
         idx.value++
       }

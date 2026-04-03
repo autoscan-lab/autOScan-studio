@@ -23,6 +23,10 @@ function stopActiveProcess(): void {
   }
 }
 
+function workspaceConfigDir(workspacePath: string): string {
+  return join(workspacePath, ".autoscan");
+}
+
 function startBridgeStreaming(args: string[]): void {
   const win = getTargetWindow();
   if (!win) return;
@@ -132,6 +136,8 @@ export function registerEngineHandlers(): void {
         workspacePath,
         "--policy",
         policyPath,
+        "--config-dir",
+        workspaceConfigDir(workspacePath),
       ]);
     },
   );
@@ -151,6 +157,8 @@ export function registerEngineHandlers(): void {
         workspacePath,
         "--policy",
         policyPath,
+        "--config-dir",
+        workspaceConfigDir(workspacePath),
         "--submission-id",
         submissionID,
         "--test-case-index",

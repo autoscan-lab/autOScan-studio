@@ -198,7 +198,9 @@ export function registerWorkspaceHandlers(): void {
       subdir: string,
       filePaths: string[],
     ): Promise<string[]> => {
-      const targetDir = join(rootPath, ".autoscan", subdir);
+      const normalizedSubdir =
+        subdir === "expected-output" ? "expected_outputs" : subdir;
+      const targetDir = join(rootPath, ".autoscan", normalizedSubdir);
       await mkdir(targetDir, { recursive: true });
 
       const importedPaths: string[] = [];
@@ -208,7 +210,7 @@ export function registerWorkspaceHandlers(): void {
         const dest = join(targetDir, fileName);
         const content = await readFile(src);
         await writeFile(dest, content);
-        importedPaths.push(join(".autoscan", subdir, fileName));
+        importedPaths.push(join(".autoscan", normalizedSubdir, fileName));
       }
 
       return importedPaths;

@@ -369,7 +369,7 @@ export function InspectorPane() {
                                   {group.hits.map((hit, index) => (
                                     <div
                                       key={`${groupKey}-${hit.line ?? index}-${index}`}
-                                      className="flex items-start gap-2 border-b border-separator px-3 py-2 text-[11px] last:border-b-0"
+                                      className="flex items-start gap-2 px-3 py-2 text-[11px]"
                                     >
                                       <pre className="min-w-0 flex-1 whitespace-pre-wrap font-mono text-text-primary">
                                         {hit.snippet || "(no snippet)"}
@@ -477,9 +477,6 @@ export function InspectorPane() {
                                 <p>
                                   expected exit: {testCase.expectedExit || "(unspecified)"}
                                 </p>
-                                {selectedSubmission &&
-                                  result &&
-                                  result.message && <p>{result.message}</p>}
                               </div>
                             </div>
                           );

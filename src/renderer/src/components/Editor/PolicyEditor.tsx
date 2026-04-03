@@ -12,6 +12,14 @@ import type { PolicyDraft } from "../../types/policy";
 type FileFieldKind = "single" | "multiple";
 type ImportTarget = "expected-output" | "library-files" | "test-files";
 
+function normalizeExpectedOutputRef(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const normalized = trimmed.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  return segments.length > 0 ? segments[segments.length - 1] : trimmed;
+}
+
 export function PolicyEditor() {
   const draft = useAppStore((s) => s.selectedPolicyDraft);
   const workspaceRootPath = useAppStore((s) => s.workspaceRootPath);
@@ -271,13 +279,12 @@ export function PolicyEditor() {
               <CompactSingleFilePickerField
                 label="Expected output file"
                 value={selectedTC.expectedOutputFile}
-                emptyLabel="No expected output file selected."
                 buttonLabel="Import expected output"
                 disabled={!canImportFiles}
                 onImport={() =>
                   importFiles("expected-output", null, "single", [], (value) =>
                     updateTestCase(selectedTC.id, {
-                      expectedOutputFile: value,
+                      expectedOutputFile: normalizeExpectedOutputRef(value),
                     }),
                   )
                 }
@@ -448,7 +455,6 @@ function FilePickerField({
 function CompactSingleFilePickerField({
   label,
   value,
-  emptyLabel,
   buttonLabel,
   disabled,
   onImport,
@@ -456,7 +462,6 @@ function CompactSingleFilePickerField({
 }: {
   label: string;
   value: string;
-  emptyLabel: string;
   buttonLabel: string;
   disabled: boolean;
   onImport: () => void;
@@ -469,39 +474,32 @@ function CompactSingleFilePickerField({
       <div className="mb-1.5 block text-[11px] font-medium text-text-primary/90">
         {label}
       </div>
-      <div className="flex h-9 items-center gap-2">
-        <div className="min-w-0 flex-1">
-          {hasValue ? (
-            <div className="flex h-9 items-center gap-2 rounded-md border border-separator bg-canvas/60 px-2.5">
-              <span className="min-w-0 flex-1 truncate text-[12px] text-text-primary">
-                {value}
-              </span>
-              <button
-                onClick={onClear}
-                className="text-text-secondary hover:text-red-400 cursor-default"
-              >
-                <MdDeleteOutline size={16} />
-              </button>
-            </div>
-          ) : (
-            <div className="flex h-9 items-center rounded-md border border-separator bg-canvas/35 px-3 text-[11px] text-text-secondary">
-              {emptyLabel}
-            </div>
-          )}
+      {hasValue ? (
+        <div className="flex h-9 items-center gap-2 rounded-md border border-separator bg-canvas/60 px-2.5">
+          <span className="min-w-0 flex-1 truncate text-[12px] text-text-primary">
+            {value}
+          </span>
+          <button
+            onClick={onClear}
+            className="text-text-secondary hover:text-red-400 cursor-default"
+            title="Remove expected output file"
+          >
+            <MdDeleteOutline size={16} />
+          </button>
         </div>
-
+      ) : (
         <button
           onClick={onImport}
           disabled={disabled}
           className={`
-            inline-flex h-9 shrink-0 items-center gap-1 rounded-md border px-3 text-[11px] cursor-default
+            inline-flex h-9 w-full items-center justify-center gap-1 rounded-md border px-3 text-[11px] cursor-default
             ${disabled ? "border-separator bg-canvas/50 text-text-secondary/60" : "border-separator bg-canvas/70 text-text-primary hover:bg-hover/70"}
           `}
         >
           <MdFolderOpen size={14} />
           {buttonLabel}
         </button>
-      </div>
+      )}
     </div>
   );
 }

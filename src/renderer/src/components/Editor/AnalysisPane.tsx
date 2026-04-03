@@ -25,41 +25,30 @@ export function AnalysisPane({ tab }: { tab: MainPaneTab }) {
 function DiffPane({ tab }: { tab: DiffMainPaneTab }) {
   const hasExpectedOutput = tab.payload.expectedOutput !== null;
   const actualOutput = tab.payload.actualOutput ?? tab.payload.stdout ?? "";
-  const stdout = tab.payload.stdout ?? actualOutput;
   const stderr = tab.payload.stderr ?? "";
-  const message = tab.payload.message;
+  const hasStderr = stderr.trim().length > 0;
 
   if (!hasExpectedOutput) {
     return (
       <div className="h-full overflow-auto">
-        <div className="px-4 py-3 text-[12px] leading-5 whitespace-pre-wrap font-mono">
-          {message && (
-            <p className="mb-2 text-text-secondary">{message}</p>
+        <div className="px-4 py-3 text-[12px] leading-5 whitespace-pre-wrap font-mono text-text-primary">
+          <pre className="whitespace-pre-wrap font-mono">
+            {actualOutput || "(empty)"}
+          </pre>
+          {hasStderr && (
+            <>
+              <div className="mt-4 text-text-secondary">stderr</div>
+              <pre className="mt-1 whitespace-pre-wrap font-mono text-red-300">
+                {stderr}
+              </pre>
+            </>
           )}
-          <div className="text-text-secondary">actual output</div>
-          <pre className="mt-1 text-text-primary whitespace-pre-wrap font-mono">
-            {stdout || "(empty)"}
-          </pre>
-          <div className="mt-4 text-text-secondary">stderr</div>
-          <pre className="mt-1 text-text-primary whitespace-pre-wrap font-mono">
-            {stderr || "(empty)"}
-          </pre>
         </div>
       </div>
     );
   }
 
-  if (tab.payload.state === "unavailable") {
-    return (
-      <div className="h-full overflow-auto">
-        <div className="px-4 py-3 text-[12px] text-text-primary whitespace-pre-wrap font-mono">
-          {message || "Diff output is not available yet."}
-        </div>
-      </div>
-    );
-  }
-
-  const unifiedLines = buildUnifiedDiffLines(
+  const unifiedLines = buildDiffLines(
     tab.payload.expectedOutput ?? "",
     actualOutput,
     tab.payload.diffLines,
@@ -73,9 +62,7 @@ function DiffPane({ tab }: { tab: DiffMainPaneTab }) {
             <div
               key={`${line.kind}-${index}`}
               className={
-                line.kind === "meta"
-                  ? "text-text-secondary"
-                  : line.kind === "added"
+                line.kind === "added"
                     ? "bg-green-950/25 text-green-300"
                     : line.kind === "removed"
                       ? "bg-red-950/25 text-red-300"
@@ -86,38 +73,30 @@ function DiffPane({ tab }: { tab: DiffMainPaneTab }) {
             </div>
           ))}
         </div>
-        <div className="mt-4 text-text-secondary">stdout</div>
-        <pre className="mt-1 text-text-primary whitespace-pre-wrap font-mono">
-          {stdout || "(empty)"}
-        </pre>
-        <div className="mt-4 text-text-secondary">stderr</div>
-        <pre className="mt-1 text-text-primary whitespace-pre-wrap font-mono">
-          {stderr || "(empty)"}
-        </pre>
-        {message && (
-          <p className="mt-3 text-text-secondary">{message}</p>
+        {hasStderr && (
+          <>
+            <div className="mt-4 text-text-secondary">stderr</div>
+            <pre className="mt-1 whitespace-pre-wrap font-mono text-red-300">
+              {stderr}
+            </pre>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-type UnifiedDiffLine = {
-  kind: "meta" | "same" | "added" | "removed";
+type DiffDisplayLine = {
+  kind: "same" | "added" | "removed";
   text: string;
 };
 
-function buildUnifiedDiffLines(
+function buildDiffLines(
   expected: string,
   actual: string,
   diffLines: DiffLine[] | null,
-): UnifiedDiffLine[] {
-  const lines: UnifiedDiffLine[] = [
-    { kind: "meta", text: "--- expected" },
-    { kind: "meta", text: "+++ actual" },
-    { kind: "meta", text: "@@ output @@" },
-  ];
-
+): DiffDisplayLine[] {
+  const lines: DiffDisplayLine[] = [];
   if (diffLines && diffLines.length > 0) {
     for (const line of diffLines) {
       const kind =
@@ -127,8 +106,7 @@ function buildUnifiedDiffLines(
             ? "removed"
             : "same";
       const prefix = kind === "added" ? "+" : kind === "removed" ? "-" : " ";
-      const lineInfo = line.line !== undefined ? `${line.line}: ` : "";
-      lines.push({ kind, text: `${prefix}${lineInfo}${line.content}` });
+      lines.push({ kind, text: `${prefix}${line.content}` });
     }
     return lines;
   }
