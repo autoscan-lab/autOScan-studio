@@ -66,11 +66,21 @@ function buildMenu(): void {
           accelerator: 'CmdOrCtrl+O',
           click: () => mainWindow?.webContents.send('menu:open-workspace')
         },
+        {
+          label: 'Close Workspace',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => mainWindow?.webContents.send('menu:close-workspace')
+        },
         { type: 'separator' },
         {
           label: 'Save Policy',
           accelerator: 'CmdOrCtrl+S',
           click: () => mainWindow?.webContents.send('menu:save-policy')
+        },
+        {
+          label: 'Export Grading Summary…',
+          accelerator: 'CmdOrCtrl+Shift+E',
+          click: () => mainWindow?.webContents.send('menu:export-report-summary')
         }
       ]
     },

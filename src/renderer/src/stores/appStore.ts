@@ -148,6 +148,13 @@ interface ActiveTestRunContext {
   testCaseIDsByIndex: string[];
 }
 
+interface ExportSummaryRow {
+  submission_id: string;
+  compiled: boolean;
+  banned_hit_count: number;
+  c_files: string[];
+}
+
 interface AppState {
   // Sidebar
   sidebarMode: SidebarMode;
@@ -210,6 +217,7 @@ interface AppState {
   toggleInspector: () => void;
   toggleOutput: () => void;
   openWorkspace: () => Promise<void>;
+  closeWorkspace: () => Promise<void>;
   loadWorkspace: (
     rootPath: string,
     restoredExpanded?: string[],
@@ -237,6 +245,7 @@ interface AppState {
     submissionID: string,
     testCaseID: string,
   ) => Promise<void>;
+  exportLatestReportSummary: () => Promise<void>;
   cancelRun: () => Promise<void>;
   clearOutput: () => void;
   handleEngineEvent: (event: EngineRunEvent) => void;
@@ -313,6 +322,46 @@ function mapBridgeBannedHit(hit: {
     column: hit.column ?? null,
     snippet: hit.snippet ?? "",
   };
+}
+
+function mapExportSummaryRows(report: EngineRunReport): ExportSummaryRow[] {
+  return report.submissions.map((submission) => ({
+    submission_id: submission.id,
+    compiled: submission.compileStatus === "pass",
+    banned_hit_count: submission.bannedHitCount,
+    c_files: submission.cFiles,
+  }));
+}
+
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+function serializeExportSummaryCsv(rows: ExportSummaryRow[]): string {
+  const header = "submission_id,compiled,banned_hit_count,c_files";
+  const body = rows.map((row) => {
+    const cFiles = row.c_files.join(";");
+    return [
+      csvEscape(row.submission_id),
+      row.compiled ? "true" : "false",
+      String(row.banned_hit_count),
+      csvEscape(cFiles),
+    ].join(",");
+  });
+  return [header, ...body].join("\n");
+}
+
+function buildExportBaseName(): string {
+  const now = new Date();
+  const yyyy = String(now.getFullYear());
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const hh = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  return `grading-summary-${yyyy}${mm}${dd}-${hh}${min}`;
 }
 
 function buildMockBannedHits(
@@ -472,6 +521,48 @@ export const useAppStore = create<AppState>((set, get) => {
       if (path) {
         await get().loadWorkspace(path);
       }
+    },
+
+    closeWorkspace: async () => {
+      if (get().isRunInProgress) {
+        await window.api.cancelRun();
+      }
+
+      set({
+        workspaceRootPath: null,
+        workspaceNodes: [],
+        urlByNodeID: {},
+        expandedDirectoryIDs: new Set(),
+        selectedFileNodeID: null,
+        toolbarTitle: "autOScan Studio",
+        mainPaneTabs: [],
+        activeMainPaneTabID: null,
+        editorText: "Select a file to preview.",
+        editorDocumentKind: "notice",
+        editorFilePath: null,
+        policies: [],
+        selectedPolicyID: null,
+        activePolicyID: null,
+        activePolicyTestCases: [],
+        selectedPolicyDraft: null,
+        loadedPolicyText: "",
+        selectedPolicyTestCaseID: null,
+        policyBanner: null,
+        isPolicyDirty: false,
+        runOutputText: "",
+        isRunInProgress: false,
+        runStatusMessage: "Ready to run",
+        latestRunReport: null,
+        latestRunError: null,
+        inspectorViewMode: "table",
+        selectedSubmissionID: null,
+        inspectorDetailTab: "overview",
+        testCaseResultsBySubmission: {},
+        activeTestRunContext: null,
+      });
+
+      window.api.storeSet("workspacePath", null);
+      get().persist();
     },
 
     loadWorkspace: async (rootPath, restoredExpanded, restoredSelected) => {
@@ -1048,6 +1139,55 @@ export const useAppStore = create<AppState>((set, get) => {
         submissionID,
         testCaseIndex,
       );
+    },
+
+    exportLatestReportSummary: async () => {
+      const { latestRunReport, workspaceRootPath } = get();
+      if (!latestRunReport) {
+        set((state) => ({
+          isOutputVisible: true,
+          runStatusMessage: "Nothing to export",
+          runOutputText:
+            state.runOutputText + "[Export] No run report available.\n",
+        }));
+        return;
+      }
+
+      const rows = mapExportSummaryRows(latestRunReport);
+      const baseName = buildExportBaseName();
+      const defaultPath = workspaceRootPath
+        ? `${workspaceRootPath}/${baseName}.csv`
+        : `${baseName}.csv`;
+
+      const selectedPath = await window.api.saveFile(
+        "Export Grading Summary",
+        defaultPath,
+        [
+          { name: "CSV", extensions: ["csv"] },
+          { name: "JSON", extensions: ["json"] },
+        ],
+      );
+      if (!selectedPath) return;
+
+      const normalizedPath = selectedPath.toLowerCase();
+      const targetPath =
+        normalizedPath.endsWith(".csv") || normalizedPath.endsWith(".json")
+          ? selectedPath
+          : `${selectedPath}.csv`;
+
+      const isJsonExport = targetPath.toLowerCase().endsWith(".json");
+      const content = isJsonExport
+        ? JSON.stringify(rows, null, 2)
+        : serializeExportSummaryCsv(rows);
+
+      await window.api.writeTextFile(targetPath, content);
+      set((state) => ({
+        isOutputVisible: true,
+        runStatusMessage: "Summary exported",
+        runOutputText:
+          state.runOutputText +
+          `[Export] Saved ${rows.length} rows to ${targetPath}\n`,
+      }));
     },
 
     cancelRun: async () => {

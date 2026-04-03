@@ -24,4 +24,23 @@ export function registerDialogHandlers(): void {
       return result.filePaths
     }
   )
+
+  ipcMain.handle(
+    'dialog:save-file',
+    async (
+      _event,
+      title: string,
+      defaultPath?: string,
+      filters?: Electron.FileFilter[]
+    ): Promise<string | null> => {
+      const win = BrowserWindow.getFocusedWindow()
+      const result = await dialog.showSaveDialog(win!, {
+        title,
+        defaultPath,
+        filters
+      })
+      if (result.canceled || !result.filePath) return null
+      return result.filePath
+    }
+  )
 }

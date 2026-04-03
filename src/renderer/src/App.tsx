@@ -24,7 +24,9 @@ export default function App() {
   const toggleInspector = useAppStore((s) => s.toggleInspector);
   const toggleOutput = useAppStore((s) => s.toggleOutput);
   const openWorkspace = useAppStore((s) => s.openWorkspace);
+  const closeWorkspace = useAppStore((s) => s.closeWorkspace);
   const savePolicy = useAppStore((s) => s.savePolicy);
+  const exportLatestReportSummary = useAppStore((s) => s.exportLatestReportSummary);
   const handleEngineEvent = useAppStore((s) => s.handleEngineEvent);
   const appendOutput = useAppStore((s) => s.appendOutput);
   const setRunDone = useAppStore((s) => s.setRunDone);
@@ -45,7 +47,12 @@ export default function App() {
   useEffect(() => {
     const unsubs = [
       window.api.onMenuEvent("menu:open-workspace", openWorkspace),
+      window.api.onMenuEvent("menu:close-workspace", () => void closeWorkspace()),
       window.api.onMenuEvent("menu:save-policy", savePolicy),
+      window.api.onMenuEvent(
+        "menu:export-report-summary",
+        () => void exportLatestReportSummary(),
+      ),
       window.api.onMenuEvent("menu:toggle-sidebar", toggleSidebar),
       window.api.onMenuEvent("menu:toggle-inspector", toggleInspector),
       window.api.onMenuEvent("menu:toggle-output", toggleOutput),
@@ -59,7 +66,9 @@ export default function App() {
     return () => unsubs.forEach((fn) => fn());
   }, [
     openWorkspace,
+    closeWorkspace,
     savePolicy,
+    exportLatestReportSummary,
     toggleSidebar,
     toggleInspector,
     toggleOutput,

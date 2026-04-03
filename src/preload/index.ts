@@ -32,6 +32,8 @@ export const api = {
       subdir,
       filePaths,
     ) as Promise<string[]>,
+  writeTextFile: (filePath: string, content: string) =>
+    ipcRenderer.invoke("workspace:write-text-file", filePath, content),
 
   // Dialogs
   openDirectory: () => ipcRenderer.invoke("dialog:open-directory"),
@@ -39,6 +41,11 @@ export const api = {
     title: string,
     filters?: { name: string; extensions: string[] }[],
   ) => ipcRenderer.invoke("dialog:open-files", title, filters),
+  saveFile: (
+    title: string,
+    defaultPath?: string,
+    filters?: { name: string; extensions: string[] }[],
+  ) => ipcRenderer.invoke("dialog:save-file", title, defaultPath, filters),
 
   // Engine
   runSession: (

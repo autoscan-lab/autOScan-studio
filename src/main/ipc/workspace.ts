@@ -98,6 +98,13 @@ export function registerWorkspaceHandlers(): void {
   );
 
   ipcMain.handle(
+    "workspace:write-text-file",
+    async (_event, filePath: string, content: string): Promise<void> => {
+      await writeFile(filePath, content, "utf-8");
+    },
+  );
+
+  ipcMain.handle(
     "workspace:list-policies",
     async (_event, rootPath: string) => {
       const policiesDir = join(rootPath, "policies");
