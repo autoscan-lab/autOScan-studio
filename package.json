@@ -45,6 +45,7 @@
     "appId": "com.autoscan.studio",
     "productName": "autOScan Studio",
     "mac": {
+      "icon": "build/icon.icns",
       "target": "dmg"
     },
     "extraResources": [
