@@ -358,46 +358,6 @@ function buildExportBaseName(): string {
   return "grading-summary";
 }
 
-function buildMockBannedHits(
-  submissionPath: string,
-  cFiles: string[],
-  count: number,
-): BannedHit[] {
-  if (count <= 0) return [];
-
-  const files = cFiles.length > 0 ? cFiles : ["SZ.c"];
-  const templates = [
-    {
-      functionName: "gets",
-      snippet: 'gets(buffer);',
-    },
-    {
-      functionName: "strcpy",
-      snippet: 'strcpy(dst, src);',
-    },
-    {
-      functionName: "system",
-      snippet: 'system("echo hi");',
-    },
-    {
-      functionName: "scanf",
-      snippet: 'scanf("%s", name);',
-    },
-  ];
-
-  return Array.from({ length: count }, (_, index) => {
-    const template = templates[index % templates.length];
-    const fileName = files[index % files.length];
-    return {
-      functionName: template.functionName,
-      filePath: `${submissionPath.replace(/\\/g, "/")}/${fileName}`,
-      line: 10 + index * 3,
-      column: 3,
-      snippet: template.snippet,
-    };
-  });
-}
-
 function resolveTestCaseIDByIndex(
   context: ActiveTestRunContext | null,
   index: number,
@@ -1291,13 +1251,9 @@ export const useAppStore = create<AppState>((set, get) => {
                   : submission.compile_ok
                     ? "pass"
                     : "fail";
-              const bannedHits =
-                submission.banned_hits?.map(mapBridgeBannedHit) ??
-                buildMockBannedHits(
-                  submission.path,
-                  submission.c_files,
-                  submission.banned_count,
-                );
+              const bannedHits = (submission.banned_hits ?? []).map(
+                mapBridgeBannedHit,
+              );
 
               return {
                 id: submission.id,
