@@ -1217,7 +1217,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
         case "scan_complete": {
           const submissionID = event.scan?.submission_id ?? "unknown";
-          const bannedHits = event.scan?.banned_hits ?? 0;
+          const bannedHits = event.scan?.hits?.length ?? 0;
 
           set((state) => ({
             runOutputText:
@@ -1244,29 +1244,29 @@ export const useAppStore = create<AppState>((set, get) => {
               bannedHits: event.run.summary.banned_hits_total,
               topBannedFunctions: event.run.summary.top_banned_functions,
             },
-            submissions: event.run.submissions.map((submission) => {
+            submissions: event.run.results.map((submission) => {
               const compileStatus: "pass" | "fail" | "timeout" =
-                submission.compile_timeout
+                submission.compile.timed_out
                   ? "timeout"
-                  : submission.compile_ok
+                  : submission.compile.ok
                     ? "pass"
                     : "fail";
-              const bannedHits = (submission.banned_hits ?? []).map(
+              const bannedHits = (submission.scan.hits ?? []).map(
                 mapBridgeBannedHit,
               );
 
               return {
-                id: submission.id,
-                submissionPath: submission.path,
+                id: submission.submission.id,
+                submissionPath: submission.submission.path,
                 status: submission.status,
-                cFiles: submission.c_files,
-                compileOk: submission.compile_ok,
+                cFiles: submission.submission.c_files,
+                compileOk: submission.compile.ok,
                 compileStatus,
-                compileTimeout: submission.compile_timeout,
-                bannedHitCount: submission.banned_count,
-                exitCode: submission.exit_code,
-                compileTimeMs: submission.compile_time_ms,
-                stderr: submission.stderr ?? "",
+                compileTimeout: submission.compile.timed_out,
+                bannedHitCount: submission.scan.hits?.length ?? 0,
+                exitCode: submission.compile.exit_code,
+                compileTimeMs: submission.compile.duration_ms,
+                stderr: submission.compile.stderr ?? "",
                 bannedHits,
               };
             }),
@@ -1337,9 +1337,9 @@ export const useAppStore = create<AppState>((set, get) => {
           const testCaseID =
             resolveTestCaseIDByIndex(
               context,
-              payload.test_case_index,
+              payload.index,
               get().activePolicyTestCases,
-            ) ?? `index:${payload.test_case_index}`;
+            ) ?? `index:${payload.index}`;
 
           const mappedStatus: SubmissionTestCaseStatus =
             payload.status === "running" ||
@@ -1367,7 +1367,7 @@ export const useAppStore = create<AppState>((set, get) => {
               : null;
 
           set((state) => ({
-            runStatusMessage: `${payload.test_case_name || "Test"} ${mappedStatus}`,
+            runStatusMessage: `${payload.name || "Test"} ${mappedStatus}`,
             testCaseResultsBySubmission: {
               ...state.testCaseResultsBySubmission,
               [payload.submission_id]: {
@@ -1375,8 +1375,8 @@ export const useAppStore = create<AppState>((set, get) => {
                 [testCaseID]: {
                   submissionID: payload.submission_id,
                   testCaseID,
-                  testCaseIndex: payload.test_case_index,
-                  testCaseName: payload.test_case_name || "Untitled test",
+                  testCaseIndex: payload.index,
+                  testCaseName: payload.name || "Untitled test",
                   status: mappedStatus,
                   exitCode: payload.exit_code,
                   durationMs: payload.duration_ms,
@@ -1407,7 +1407,7 @@ export const useAppStore = create<AppState>((set, get) => {
             const testCaseLabel =
               get().activePolicyTestCases.find((testCase) => testCase.id === testCaseID)
                 ?.name ||
-              payload.test_case_name ||
+              payload.name ||
               "Untitled test";
             const hasDiffPayload =
               payload.expected_output !== undefined ||

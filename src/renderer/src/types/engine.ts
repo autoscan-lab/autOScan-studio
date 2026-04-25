@@ -21,8 +21,7 @@ export interface BridgeCompilePayload {
 
 export interface BridgeScanPayload {
   submission_id: string;
-  banned_hits: number;
-  banned_hits_details?: BridgeBannedHitPayload[];
+  hits?: BridgeBannedHitPayload[];
   parse_errors?: string[];
 }
 
@@ -56,8 +55,8 @@ export interface BridgeTestCaseStartedPayload {
 
 export interface BridgeTestCaseCompletePayload {
   submission_id: string;
-  test_case_index: number;
-  test_case_name: string;
+  index: number;
+  name: string;
   status: BridgeTestCaseStatus;
   exit_code: number;
   duration_ms: number;
@@ -82,7 +81,6 @@ export interface BridgeTestsCompletePayload {
 export interface BridgeCapabilities {
   run_session: boolean;
   run_test_case: boolean;
-  run_all_policy_tests: boolean;
   diff_payload: boolean;
 }
 
@@ -103,8 +101,20 @@ export interface BridgeRunSummary {
 }
 
 export interface BridgeRunSubmissionResult {
-  id: string;
-  path: string;
+  submission: BridgeSubmissionPayload;
+  compile: {
+    ok: boolean;
+    command?: string[];
+    exit_code: number;
+    stdout?: string;
+    stderr?: string;
+    duration_ms: number;
+    timed_out: boolean;
+  };
+  scan: {
+    hits?: BridgeBannedHitPayload[];
+    parse_errors?: string[];
+  };
   status:
     | "pending"
     | "running"
@@ -113,19 +123,15 @@ export interface BridgeRunSubmissionResult {
     | "failed"
     | "timed_out"
     | "error";
-  c_files: string[];
-  compile_ok: boolean;
-  compile_timeout: boolean;
-  exit_code: number;
-  compile_time_ms: number;
-  stderr?: string;
-  banned_count: number;
-  banned_hits?: BridgeBannedHitPayload[];
 }
 
 export interface BridgeRunPayload {
+  policy_name: string;
+  root: string;
+  started_at: string;
+  finished_at: string;
+  results: BridgeRunSubmissionResult[];
   summary: BridgeRunSummary;
-  submissions: BridgeRunSubmissionResult[];
 }
 
 export interface SubmissionCompileResult {
